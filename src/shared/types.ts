@@ -70,6 +70,9 @@ export interface Settings {
   mcpServers: McpServerConfig[]
   smb: SmbCredential[]
   searxngUrl: string // SearXNG instance for the web_search tool; '' = not configured
+  voiceCleanup: boolean // run dictated text through one cleanup model pass before inserting it
+  voiceCleanupProvider: string // provider id for the cleanup pass; '' = use the active provider
+  voiceCleanupModel: string // model id for the cleanup pass
   subscriptions?: { anthropic?: SubCreds; codex?: SubCreds }
 }
 
@@ -142,6 +145,20 @@ export interface UsageReport {
   chatgpt?: SourceUsage
 }
 
+export interface VoiceStatus {
+  engineFound: boolean
+  enginePath?: string
+  modelPresent: boolean
+  modelSize?: number // bytes
+}
+
+export interface VoiceResult {
+  ok: boolean
+  text?: string
+  error?: string
+  code?: 'engine-missing' | 'model-missing'
+}
+
 export interface Api {
   getSettings(): Promise<Settings>
   setSettings(s: Settings): Promise<McpStatus[]>
@@ -163,6 +180,10 @@ export interface Api {
   subsSubmitCode(code: string): Promise<boolean>
   subsLogout(which: SubWhich): Promise<SubStatus>
   usageGet(): Promise<UsageReport>
+  voiceTranscribe(bytes: Uint8Array): Promise<VoiceResult>
+  voiceStatus(): Promise<VoiceStatus>
+  voiceDownloadModel(): Promise<{ ok: boolean; error?: string }>
+  onVoiceModelProgress(cb: (e: { pct: number }) => void): () => void
   pickDir(): Promise<string | null>
   onEvent(cb: (e: ChatEvent) => void): () => void
   onSubsAuth(cb: (e: SubsAuthEvent) => void): () => void

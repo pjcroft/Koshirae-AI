@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import logo from './logo.png'
+import { blobToWav16k } from './voice'
 import type { ChatEvent, ChatMessage, Conversation, ConversationMeta, McpStatus, Settings, UsageReport } from '@shared/types'
 import SettingsModal from './SettingsModal'
 
@@ -37,6 +38,18 @@ export default function App() {
   const [mcp, setMcp] = useState<McpStatus[]>([])
   const [usage, setUsage] = useState<UsageReport | null>(null)
   const [compacting, setCompacting] = useState(false)
+  // Voice dictation: idle → recording → transcribing → idle (or an error
+  // line under the composer). Everything happens on-device in the main
+  // process; here we only record and insert the resulting text.
+  const [voiceState, setVoiceState] = useState<'idle' | 'recording' | 'transcribing'>('idle')
+  const [voiceSecs, setVoiceSecs] = useState(0)
+  const [voiceError, setVoiceError] = useState('')
+  const inputRef = useRef<HTMLTextAreaElement>(null)
+  const mediaRef = useRef<MediaRecorder | null>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const voiceStartRef = useRef(0)
+  const voiceTimerRef = useRef<number | undefined>(undefined)
   const convRef = useRef<Conversation | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
   convRef.current = conv
@@ -96,6 +109,15 @@ export default function App() {
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' })
   }, [conv?.messages.length, streaming, approvals.length])
+
+  // Release the microphone if the component ever unmounts mid-recording.
+  useEffect(
+    () => () => {
+      if (voiceTimerRef.current) window.clearInterval(voiceTimerRef.current)
+      streamRef.current?.getTracks().forEach((t) => t.stop())
+    },
+    []
+  )
 
   if (!settings) return null
 
@@ -171,6 +193,73 @@ export default function App() {
     } finally {
       setCompacting(false)
     }
+  }
+
+  const insertAtCursor = (text: string) => {
+    const ta = inputRef.current
+    // The textarea's live value is the source of truth (state may lag a
+    // render behind what the user typed while recording).
+    const cur = ta?.value ?? input
+    const start = ta?.selectionStart ?? cur.length
+    const end = ta?.selectionEnd ?? cur.length
+    const before = cur.slice(0, start)
+    const sep = before && !/\s$/.test(before) ? ' ' : ''
+    setInput(before + sep + text + cur.slice(end))
+    const pos = (before + sep + text).length
+    requestAnimationFrame(() => {
+      ta?.focus()
+      ta?.setSelectionRange(pos, pos)
+    })
+  }
+
+  const finishVoice = async (blob: Blob) => {
+    setVoiceState('transcribing')
+    try {
+      const wav = await blobToWav16k(blob)
+      const r = await api.voiceTranscribe(wav)
+      if (r.ok && r.text) insertAtCursor(r.text)
+      else setVoiceError(r.error ?? 'Transcription failed.')
+    } catch (e: any) {
+      setVoiceError(`Transcription failed: ${e?.message ?? e}`)
+    } finally {
+      setVoiceState('idle')
+    }
+  }
+
+  const startVoice = async () => {
+    setVoiceError('')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+      chunksRef.current = []
+      const rec = new MediaRecorder(stream)
+      rec.ondataavailable = (e) => {
+        if (e.data.size) chunksRef.current.push(e.data)
+      }
+      rec.onstop = () => {
+        streamRef.current?.getTracks().forEach((t) => t.stop())
+        streamRef.current = null
+        void finishVoice(new Blob(chunksRef.current, { type: rec.mimeType }))
+      }
+      mediaRef.current = rec
+      rec.start()
+      voiceStartRef.current = Date.now()
+      setVoiceSecs(0)
+      setVoiceState('recording')
+      voiceTimerRef.current = window.setInterval(
+        () => setVoiceSecs(Math.floor((Date.now() - voiceStartRef.current) / 1000)),
+        250
+      )
+    } catch (e: any) {
+      setVoiceError(`Microphone unavailable: ${e?.message ?? e}`)
+    }
+  }
+
+  const toggleVoice = () => {
+    if (voiceState === 'recording') {
+      if (voiceTimerRef.current) window.clearInterval(voiceTimerRef.current)
+      mediaRef.current?.stop() // onstop hands the recording to finishVoice
+    } else if (voiceState === 'idle') void startVoice()
   }
 
   const busy = !!conv && busyIds.has(conv.id)
@@ -372,6 +461,7 @@ export default function App() {
                 <span>Memory</span>
                 <span>Tool approvals</span>
                 <span>MCP</span>
+                <span>🎤 Voice dictation</span>
               </div>
             </div>
           )}
@@ -418,23 +508,45 @@ export default function App() {
           <div ref={endRef} />
         </div>
 
-        <footer className="composer">
-          <textarea
-            value={input}
-            placeholder="Message Koshirae AI…  (Enter to send, Shift+Enter for newline)"
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                send()
+        <footer className="composer-area">
+          <div className="composer">
+            <textarea
+              ref={inputRef}
+              value={input}
+              placeholder="Message Koshirae AI…  (Enter to send, Shift+Enter for newline)"
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  send()
+                }
+              }}
+            />
+            <button
+              className={'btn mic' + (voiceState === 'recording' ? ' rec' : '')}
+              onClick={toggleVoice}
+              disabled={voiceState === 'transcribing'}
+              title={
+                voiceState === 'recording'
+                  ? 'Stop recording'
+                  : 'Voice dictation — transcribed on this Mac with Whisper'
               }
-            }}
-          />
-          {busy ? (
-            <button className="btn" onClick={() => conv && api.stop(conv.id)}>■ Stop</button>
-          ) : (
-            <button className="btn primary" onClick={send}>Send</button>
-          )}
+            >
+              {voiceState === 'transcribing' ? (
+                <span className="spin" />
+              ) : voiceState === 'recording' ? (
+                `● ${voiceSecs}s`
+              ) : (
+                '🎤'
+              )}
+            </button>
+            {busy ? (
+              <button className="btn" onClick={() => conv && api.stop(conv.id)}>■ Stop</button>
+            ) : (
+              <button className="btn primary" onClick={send}>Send</button>
+            )}
+          </div>
+          {voiceError && <div className="voice-err">{voiceError}</div>}
         </footer>
       </main>
 

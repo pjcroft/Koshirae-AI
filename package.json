@@ -1,6 +1,6 @@
 {
   "name": "harness",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Multi-provider AI chat + agent harness (OpenRouter, OpenAI-compatible, Ollama, MCP)",
   "main": "out/main/index.mjs",
   "author": "you",
@@ -22,7 +22,10 @@
       "target": [
         "dmg"
       ],
-      "category": "public.app-category.developer-tools"
+      "category": "public.app-category.developer-tools",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Koshirae AI uses the microphone for voice dictation."
+      }
     },
     "linux": {
       "target": [

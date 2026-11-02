@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { McpServerConfig, McpStatus, Policy, Provider, Settings, SmbCredential, SubStatus, SubWhich, ToolCategory, UsageReport } from '@shared/types'
+import type { McpServerConfig, McpStatus, Policy, Provider, Settings, SmbCredential, SubStatus, SubWhich, ToolCategory, UsageReport, VoiceStatus } from '@shared/types'
 
 const PRESETS: Omit<Provider, 'id'>[] = [
   { name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', apiKey: '' },
@@ -29,6 +29,24 @@ export default function SettingsModal(props: {
   const [all, setAll] = useState<string[]>([])
   const [filter, setFilter] = useState('')
   const [loadErr, setLoadErr] = useState('')
+  const [vstat, setVstat] = useState<VoiceStatus | null>(null)
+  const [dl, setDl] = useState(false)
+  const [dlPct, setDlPct] = useState(0)
+  const [dlErr, setDlErr] = useState('')
+  const refreshVoice = () =>
+    void window.api
+      .voiceStatus()
+      .then(setVstat)
+      .catch(() => {})
+  const downloadModel = async () => {
+    setDl(true)
+    setDlPct(0)
+    setDlErr('')
+    const r = await window.api.voiceDownloadModel().catch((e: any) => ({ ok: false, error: String(e?.message ?? e) }))
+    setDl(false)
+    if (!r.ok) setDlErr(r.error ?? 'Download failed')
+    refreshVoice()
+  }
   const enabled = s.enabledModels?.[mp] ?? []
   const setEnabled = (list: string[]) => setS({ ...s, enabledModels: { ...s.enabledModels, [mp]: list } })
 
@@ -50,6 +68,8 @@ export default function SettingsModal(props: {
   useEffect(() => {
     void window.api.subsStatus().then(setSubs).catch(() => {})
     loadUsage()
+    refreshVoice()
+    const offProgress = window.api.onVoiceModelProgress(({ pct }) => setDlPct(pct))
     const offAuth = window.api.onSubsAuth((e) => {
       setLogin((l) =>
         l && l.which === e.which
@@ -67,6 +87,7 @@ export default function SettingsModal(props: {
     return () => {
       offAuth()
       offDone()
+      offProgress()
     }
   }, [])
   const shown = [...new Set([...enabled, ...all])]
@@ -231,6 +252,71 @@ export default function SettingsModal(props: {
           />
         </div>
         <p className="hint">Used by the web_search tool. Point it at a SearXNG instance with JSON output enabled.</p>
+
+        <h4>Voice dictation</h4>
+        <p className="hint">
+          {vstat === null
+            ? 'Checking engine and model…'
+            : vstat.engineFound
+              ? `Engine: whisper-cli found (${vstat.enginePath})`
+              : 'Engine: whisper-cli not found — install it with: brew install whisper-cpp'}
+        </p>
+        <div className="row">
+          {vstat?.modelPresent ? (
+            <span>
+              Model: large-v3-turbo ready
+              {vstat.modelSize ? ` (${(vstat.modelSize / 1e9).toFixed(2)} GB)` : ''}
+            </span>
+          ) : (
+            <>
+              <span>Model: not downloaded (~1.6 GB)</span>
+              <button className="btn" onClick={() => void downloadModel()} disabled={dl}>
+                {dl ? `Downloading… ${dlPct}%` : 'Download model'}
+              </button>
+            </>
+          )}
+        </div>
+        {dl && (
+          <div className="row">
+            <div className="dl-progress">
+              <i style={{ width: `${dlPct}%` }} />
+            </div>
+          </div>
+        )}
+        {dlErr && <div className="err">{dlErr}</div>}
+        <div className="row">
+          <label>
+            <input
+              type="checkbox"
+              checked={s.voiceCleanup}
+              onChange={(e) => setS({ ...s, voiceCleanup: e.target.checked })}
+            />{' '}
+            Clean up transcripts with a model before inserting them
+          </label>
+        </div>
+        <div className="row">
+          <select
+            value={s.voiceCleanupProvider}
+            onChange={(e) => setS({ ...s, voiceCleanupProvider: e.target.value })}
+          >
+            {s.providers.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+            <option value="">Use active provider</option>
+          </select>
+          <input
+            value={s.voiceCleanupModel}
+            onChange={(e) => setS({ ...s, voiceCleanupModel: e.target.value })}
+            placeholder="Cleanup model id"
+          />
+        </div>
+        <p className="hint">
+          Cleanup sends the transcript to the selected provider for polishing. Choose the Ollama or LM Studio
+          provider instead if you want cleanup fully local (the LM Studio slot can also be pointed at
+          AnythingLLM's local API). If the cleanup call fails, the raw transcript is inserted instead.
+        </p>
 
         <h4>Models shown in chat</h4>
         <div className="row">

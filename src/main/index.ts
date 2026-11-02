@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron'
 import { execFile } from 'child_process'
 import { existsSync } from 'fs'
 import { writeFile } from 'fs/promises'
@@ -11,6 +11,7 @@ import { compactConversation, deleted, isRunning, listModels, respondApproval, r
 import { getMcpStatus, startMcp, stopMcp } from './mcp'
 import { logout as subsLogout, startLogin, subStatus, submitCode } from './subs'
 import { getUsage } from './usage'
+import { downloadModel as voiceDownloadModel, transcribeAndClean, voiceStatus } from './voice'
 
 // The main process is an ES module (see electron.vite.config.ts) so that
 // ESM-only dependencies such as @mariozechner/pi-ai load natively.
@@ -64,6 +65,18 @@ app.whenReady().then(async () => {
   await fixPath()
   settings = await store.loadSettings()
   startMcp(settings.mcpServers)
+
+  // The only web permission the app needs is the microphone, for voice
+  // dictation, and only from our own window's renderer. Everything else is
+  // denied. (macOS additionally gates this behind the
+  // NSMicrophoneUsageDescription prompt in the app bundle.)
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback) => {
+    callback(permission === 'media' && !!win && wc === win.webContents)
+  })
+  session.defaultSession.setPermissionCheckHandler((wc, permission) => {
+    if (permission !== 'media') return true
+    return !!win && wc === win.webContents
+  })
 
   ipcMain.handle('settings:get', () => settings)
   ipcMain.handle('settings:set', async (_e, s: Settings) => {
@@ -136,6 +149,11 @@ app.whenReady().then(async () => {
     return subStatus(settings)
   })
   ipcMain.handle('usage:get', () => getUsage(settings))
+  ipcMain.handle('voice:transcribe', (_e, bytes: Uint8Array) => transcribeAndClean(settings, bytes))
+  ipcMain.handle('voice:status', () => voiceStatus())
+  ipcMain.handle('voice:download-model', () =>
+    win ? voiceDownloadModel(win) : { ok: false, error: 'No window available for progress reporting' }
+  )
   ipcMain.handle('projects:pick-dir', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
     return r.canceled ? null : r.filePaths[0]

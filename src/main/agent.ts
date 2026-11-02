@@ -68,9 +68,11 @@ async function streamCompletion(
   messages: ChatMessage[],
   tools: ToolDef[],
   signal: AbortSignal,
-  onDelta: (t: string) => void
+  onDelta: (t: string) => void,
+  maxTokens?: number
 ): Promise<ChatMessage> {
   const body: any = { model, messages, stream: true }
+  if (maxTokens) body.max_tokens = maxTokens
   if (tools.length)
     body.tools = tools.map((t) => ({
       type: 'function',
@@ -202,7 +204,8 @@ async function streamSubCompletion(
   messages: ChatMessage[],
   tools: ToolDef[],
   signal: AbortSignal,
-  onDelta: (t: string) => void
+  onDelta: (t: string) => void,
+  maxTokens?: number
 ): Promise<ChatMessage> {
   const which = p.kind === 'claude-sub' ? 'anthropic' : 'codex'
   const apiKey = await getValidApiKey(settings, which)
@@ -222,7 +225,7 @@ async function streamSubCompletion(
     messages: toPiMessages(messages.filter((m) => m.role !== 'system'), model),
     tools: tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }) as unknown as PiTool)
   }
-  const events = stream(model, ctx, { apiKey, signal })
+  const events = stream(model, ctx, { apiKey, signal, ...(maxTokens ? { maxTokens } : {}) })
   for await (const ev of events) if (ev.type === 'text_delta') onDelta(ev.delta)
   const final = await events.result()
   if (final.stopReason === 'error' && !signal.aborted) throw new Error(final.errorMessage || 'Subscription provider error')
@@ -391,6 +394,36 @@ export async function compactConversation(
   conv.updatedAt = Date.now()
   await saveConv(conv)
   return { compacted: true, summaryUpTo: cut }
+}
+
+// One tool-less completion (system + single user message) — the pattern the
+// compaction pass uses, exported for other one-shot jobs such as the voice
+// dictation cleanup pass. Returns the trimmed text; throws on provider
+// error or timeout so callers can fall back.
+export async function oneShotCompletion(
+  settings: Settings,
+  provider: Provider,
+  modelId: string,
+  systemPrompt: string,
+  userText: string,
+  opts: { timeoutMs?: number; maxTokens?: number } = {}
+): Promise<string> {
+  const ac = new AbortController()
+  const timer = opts.timeoutMs ? setTimeout(() => ac.abort(), opts.timeoutMs) : undefined
+  const input: ChatMessage[] = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userText }
+  ]
+  try {
+    const out =
+      provider.kind === 'claude-sub' || provider.kind === 'chatgpt-sub'
+        ? await streamSubCompletion(settings, provider, modelId, input, [], ac.signal, () => {}, opts.maxTokens)
+        : await streamCompletion(provider, modelId, input, [], ac.signal, () => {}, opts.maxTokens)
+    if (ac.signal.aborted) throw new Error('One-shot completion timed out')
+    return (typeof out.content === 'string' ? out.content : '').trim()
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 export async function runAgent(

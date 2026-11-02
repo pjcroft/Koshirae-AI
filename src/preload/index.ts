@@ -24,6 +24,14 @@ const api: Api = {
   subsSubmitCode: (code) => inv('subs:submit', code),
   subsLogout: (which) => inv('subs:logout', which),
   usageGet: () => inv('usage:get'),
+  voiceTranscribe: (bytes) => inv('voice:transcribe', bytes),
+  voiceStatus: () => inv('voice:status'),
+  voiceDownloadModel: () => inv('voice:download-model'),
+  onVoiceModelProgress: (cb) => {
+    const h = (_: unknown, e: { pct: number }) => cb(e)
+    ipcRenderer.on('voice:model-progress', h)
+    return () => ipcRenderer.removeListener('voice:model-progress', h)
+  },
   pickDir: () => inv('dialog:dir'),
   onEvent: (cb) => {
     const h = (_: unknown, e: ChatEvent) => cb(e)

@@ -35,6 +35,9 @@ export const defaultSettings = (): Settings => ({
   mcpServers: [],
   smb: [],
   searxngUrl: '',
+  voiceCleanup: true,
+  voiceCleanupProvider: 'openrouter',
+  voiceCleanupModel: 'nvidia/nemotron-3.5-super-vl:free',
   subscriptions: {}
 })
 
