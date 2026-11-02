@@ -1,12 +1,17 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { execFile } from 'child_process'
-import { join } from 'path'
+import { dirname, join } from 'path'
+import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
 import type { Conversation, Settings, SubWhich } from '@shared/types'
 import * as store from './store'
 import { deleted, isRunning, listModels, respondApproval, runAgent, stopAll, stopConv } from './agent'
 import { getMcpStatus, startMcp, stopMcp } from './mcp'
 import { logout as subsLogout, startLogin, subStatus, submitCode } from './subs'
+
+// The main process is an ES module (see electron.vite.config.ts) so that
+// ESM-only dependencies such as @mariozechner/pi-ai load natively.
+const mainDir = dirname(fileURLToPath(import.meta.url))
 
 let win: BrowserWindow | null = null
 let settings: Settings
@@ -31,8 +36,8 @@ function createWindow() {
     minHeight: 520,
     backgroundColor: '#0b1220',
     title: 'PC AI',
-    icon: join(__dirname, '../../resources/logo.png'),
-    webPreferences: { preload: join(__dirname, '../preload/index.js'), sandbox: false }
+    icon: join(mainDir, '../../resources/logo.png'),
+    webPreferences: { preload: join(mainDir, '../preload/index.js'), sandbox: false }
   })
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/.test(url)) shell.openExternal(url)
@@ -46,7 +51,7 @@ function createWindow() {
   win.webContents.on('will-navigate', guard)
   win.webContents.on('will-redirect', guard)
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
-  else win.loadFile(join(__dirname, '../renderer/index.html'))
+  else win.loadFile(join(mainDir, '../renderer/index.html'))
 }
 
 const provider = (id: string) => settings.providers.find((p) => p.id === id) ?? settings.providers[0]
