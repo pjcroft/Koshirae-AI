@@ -28,7 +28,7 @@ export const defaultSettings = (): Settings => ({
   model: 'anthropic/claude-sonnet-4.5',
   enabledModels: {},
   systemPrompt:
-    'You are PC AI, a capable assistant running on the user\'s computer with tools for local files, shell commands, SSH, SMB shares, and Tailscale. Use tools when they help; be concise and careful with anything destructive.',
+    'You are Koshirae AI, a capable assistant running on the user\'s computer with tools for local files, shell commands, SSH, SMB shares, and Tailscale. Use tools when they help; be concise and careful with anything destructive.',
   workingDir: homedir(),
   projects: [],
   policy: { read: 'allow', write: 'ask', exec: 'ask', mcp: 'ask' },

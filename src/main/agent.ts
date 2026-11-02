@@ -31,7 +31,7 @@ const headers = (p: Provider): Record<string, string> => {
   if (p.apiKey) h.Authorization = `Bearer ${p.apiKey}`
   if (p.baseUrl.includes('openrouter.ai')) {
     h['HTTP-Referer'] = 'https://pjcroft.ddnsfree.com'
-    h['X-Title'] = 'PC AI'
+    h['X-Title'] = 'Koshirae AI'
   }
   return h
 }

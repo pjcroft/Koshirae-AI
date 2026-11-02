@@ -194,7 +194,7 @@ export const builtinTools: ToolDef[] = [
   },
   {
     name: 'smb_list',
-    description: 'List a folder on an SMB/CIFS share using smbclient. Credentials come from PC AI settings (SMB tab).',
+    description: 'List a folder on an SMB/CIFS share using smbclient. Credentials come from Koshirae AI settings (SMB tab).',
     parameters: {
       type: 'object',
       properties: { host: str('Server name or IP'), share: str('Share name'), path: str('Folder path inside share, default root') },

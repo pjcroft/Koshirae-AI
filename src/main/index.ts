@@ -38,7 +38,7 @@ function createWindow() {
     minWidth: 760,
     minHeight: 520,
     backgroundColor: '#0b1220',
-    title: 'PC AI',
+    title: 'Koshirae AI',
     icon: join(mainDir, '../../resources/logo.png'),
     webPreferences: { preload: join(mainDir, '../preload/index.js'), sandbox: false }
   })
@@ -60,7 +60,7 @@ function createWindow() {
 const provider = (id: string) => settings.providers.find((p) => p.id === id) ?? settings.providers[0]
 
 app.whenReady().then(async () => {
-  app.setName('PC AI')
+  app.setName('Koshirae AI')
   await fixPath()
   settings = await store.loadSettings()
   startMcp(settings.mcpServers)

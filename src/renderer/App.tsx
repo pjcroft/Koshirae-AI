@@ -227,9 +227,9 @@ export default function App() {
     <div className="app">
       <aside className="side">
         <div className="badge">
-          <img src={logo} alt="PC AI" />
+          <img src={logo} alt="Koshirae AI" />
         </div>
-        <h1 className="brand">PC AI</h1>
+        <h1 className="brand">Koshirae AI</h1>
         <p className="eyebrow">Chat · Tools · Agents</p>
         <button className="btn primary" onClick={newChat}>
           + New chat
@@ -356,19 +356,22 @@ export default function App() {
         <div className="chat">
           {msgs.length === 0 && !busy && (
             <div className="hero">
-              <span className="kicker">⚡ PC AI</span>
+              <span className="kicker">⚡ KOSHIRAE AI</span>
               <h2>
                 Ask. Run. <span className="grad">Get it done.</span>
               </h2>
               <p className="lede">
-                Chat with any model on OpenRouter or a local server. It can read files, run commands, reach servers over
-                SSH, SMB and Tailscale, and use your MCP tools — you approve anything risky.
+                Named for the koshirae — the crafted fittings that turn a bare blade into a finished sword. Bring your
+                own blade: Claude or ChatGPT on your subscription, any model on OpenRouter, or a local one. Koshirae
+                fits it with tools, projects and memory — reading files, running commands, reaching servers over SSH,
+                SMB and Tailscale, tracking your usage — and you approve anything risky.
               </p>
               <div className="pills">
-                <span>Streaming</span>
+                <span>Subscriptions</span>
+                <span>Projects</span>
+                <span>Memory</span>
                 <span>Tool approvals</span>
                 <span>MCP</span>
-                <span>Local models</span>
               </div>
             </div>
           )}
@@ -418,7 +421,7 @@ export default function App() {
         <footer className="composer">
           <textarea
             value={input}
-            placeholder="Message PC AI…  (Enter to send, Shift+Enter for newline)"
+            placeholder="Message Koshirae AI…  (Enter to send, Shift+Enter for newline)"
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
