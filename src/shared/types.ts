@@ -3,6 +3,34 @@ export interface Provider {
   name: string
   baseUrl: string // OpenAI-compatible, e.g. https://openrouter.ai/api/v1
   apiKey: string
+  kind?: 'api' | 'claude-sub' | 'chatgpt-sub'
+}
+
+export interface SubCreds {
+  refresh: string
+  access: string
+  expires: number // ms epoch
+  [key: string]: unknown
+}
+
+export type SubWhich = 'anthropic' | 'codex'
+
+export interface SubStatus {
+  anthropic: { signedIn: boolean; expires: number }
+  codex: { signedIn: boolean; expires: number }
+}
+
+export interface SubsAuthEvent {
+  which: SubWhich
+  url?: string
+  instructions?: string
+  progress?: string
+}
+
+export interface SubsDoneEvent {
+  which: SubWhich
+  ok: boolean
+  error?: string
 }
 
 export interface McpServerConfig {
@@ -34,6 +62,7 @@ export interface Settings {
   policy: Record<ToolCategory, Policy>
   mcpServers: McpServerConfig[]
   smb: SmbCredential[]
+  subscriptions?: { anthropic?: SubCreds; codex?: SubCreds }
 }
 
 export interface ToolCall {
@@ -92,6 +121,12 @@ export interface Api {
   stop(convId: string): Promise<void>
   respond(id: string, allow: boolean): Promise<void>
   mcpStatus(): Promise<McpStatus[]>
+  subsStatus(): Promise<SubStatus>
+  subsLogin(which: SubWhich): Promise<void>
+  subsSubmitCode(code: string): Promise<boolean>
+  subsLogout(which: SubWhich): Promise<SubStatus>
   pickDir(): Promise<string | null>
   onEvent(cb: (e: ChatEvent) => void): () => void
+  onSubsAuth(cb: (e: SubsAuthEvent) => void): () => void
+  onSubsDone(cb: (e: SubsDoneEvent) => void): () => void
 }

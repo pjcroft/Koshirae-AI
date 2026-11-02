@@ -5,6 +5,9 @@ import type { ChatEvent, ChatMessage, Conversation, Provider, Settings, ToolCall
 import { builtinTools, ToolDef } from './tools'
 import { mcpTools } from './mcp'
 import { saveConv } from './store'
+import { getModels, stream } from '@mariozechner/pi-ai'
+import type { AssistantMessage as PiAssistantMessage, Context as PiContext, Message as PiMessage, Model as PiModel, Tool as PiTool } from '@mariozechner/pi-ai'
+import { getValidApiKey } from './subs'
 
 const pending = new Map<string, (allow: boolean) => void>()
 const running = new Map<string, AbortController>()
@@ -32,6 +35,8 @@ const headers = (p: Provider): Record<string, string> => {
 const base = (p: Provider) => p.baseUrl.replace(/\/+$/, '')
 
 export async function listModels(p: Provider): Promise<string[]> {
+  if (p.kind === 'claude-sub') return getModels('anthropic').map((m) => m.id).sort()
+  if (p.kind === 'chatgpt-sub') return getModels('openai-codex').map((m) => m.id).sort()
   const r = await fetch(base(p) + '/models', { headers: headers(p) })
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   const j: any = await r.json()
@@ -119,6 +124,98 @@ async function streamCompletion(
   return msg
 }
 
+// ---- Subscription providers (Claude Pro/Max, ChatGPT Plus/Pro) via pi-ai ----
+
+const emptyUsage = (): PiAssistantMessage['usage'] => ({
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }
+})
+
+function toPiMessages(messages: ChatMessage[], model: PiModel<any>): PiMessage[] {
+  const now = Date.now()
+  const out: PiMessage[] = []
+  for (const m of messages) {
+    if (m.role === 'user') {
+      out.push({ role: 'user', content: [{ type: 'text', text: typeof m.content === 'string' ? m.content : '' }], timestamp: now })
+    } else if (m.role === 'assistant') {
+      const content: PiAssistantMessage['content'] = []
+      if (m.content) content.push({ type: 'text', text: m.content })
+      for (const tc of m.tool_calls ?? []) {
+        let args: Record<string, any> = {}
+        try {
+          args = JSON.parse(tc.function.arguments || '{}')
+        } catch {}
+        content.push({ type: 'toolCall', id: tc.id, name: tc.function.name, arguments: args })
+      }
+      if (!content.length) content.push({ type: 'text', text: '' })
+      out.push({
+        role: 'assistant',
+        content,
+        api: model.api,
+        provider: model.provider,
+        model: model.id,
+        usage: emptyUsage(),
+        stopReason: 'stop',
+        timestamp: now
+      })
+    } else if (m.role === 'tool') {
+      out.push({
+        role: 'toolResult',
+        toolCallId: m.tool_call_id ?? '',
+        toolName: m.name ?? '',
+        content: [{ type: 'text', text: m.content ?? '' }],
+        isError: false,
+        timestamp: now
+      })
+    }
+  }
+  return out
+}
+
+async function streamSubCompletion(
+  settings: Settings,
+  p: Provider,
+  modelId: string,
+  messages: ChatMessage[],
+  tools: ToolDef[],
+  signal: AbortSignal,
+  onDelta: (t: string) => void
+): Promise<ChatMessage> {
+  const which = p.kind === 'claude-sub' ? 'anthropic' : 'codex'
+  const apiKey = await getValidApiKey(settings, which)
+  if (!apiKey)
+    throw new Error(
+      `Not signed in — open Settings → Subscription accounts and sign in with ${which === 'anthropic' ? 'Claude' : 'ChatGPT'} first.`
+    )
+  const all = (which === 'anthropic' ? getModels('anthropic') : getModels('openai-codex')) as PiModel<any>[]
+  const model = all.find((m) => m.id === modelId)
+  if (!model) throw new Error(`Unknown model for ${p.name}: ${modelId}`)
+  const sys = messages.find((m) => m.role === 'system')
+  const ctx: PiContext = {
+    systemPrompt: typeof sys?.content === 'string' ? sys.content : undefined,
+    messages: toPiMessages(messages.filter((m) => m.role !== 'system'), model),
+    tools: tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters }) as unknown as PiTool)
+  }
+  const events = stream(model, ctx, { apiKey, signal })
+  for await (const ev of events) if (ev.type === 'text_delta') onDelta(ev.delta)
+  const final = await events.result()
+  if (final.stopReason === 'error' && !signal.aborted) throw new Error(final.errorMessage || 'Subscription provider error')
+  let content = ''
+  const calls: ToolCall[] = []
+  for (const b of final.content) {
+    if (b.type === 'text') content += b.text
+    else if (b.type === 'toolCall')
+      calls.push({ id: b.id, type: 'function', function: { name: b.name, arguments: JSON.stringify(b.arguments ?? {}) } })
+  }
+  const msg: ChatMessage = { role: 'assistant', content: content || null }
+  if (calls.length && !signal.aborted) msg.tool_calls = calls
+  return msg
+}
+
 function repairOrphans(msgs: ChatMessage[]): ChatMessage[] {
   const out: ChatMessage[] = []
   msgs.forEach((m, i) => {
@@ -161,14 +258,25 @@ export async function runAgent(
   try {
     for (let iter = 0; iter < 25 && !ac.signal.aborted; iter++) {
       const tools = [...builtinTools, ...mcpTools()]
-      const msg = await streamCompletion(
-        provider,
-        model,
-        [sys, ...repairOrphans(conv.messages)],
-        tools,
-        ac.signal,
-        (text) => emit({ convId: conv.id, type: 'delta', text })
-      )
+      const isSub = provider.kind === 'claude-sub' || provider.kind === 'chatgpt-sub'
+      const msg = isSub
+        ? await streamSubCompletion(
+            settings,
+            provider,
+            model,
+            [sys, ...repairOrphans(conv.messages)],
+            tools,
+            ac.signal,
+            (text) => emit({ convId: conv.id, type: 'delta', text })
+          )
+        : await streamCompletion(
+            provider,
+            model,
+            [sys, ...repairOrphans(conv.messages)],
+            tools,
+            ac.signal,
+            (text) => emit({ convId: conv.id, type: 'delta', text })
+          )
       if (msg.content || msg.tool_calls) await push(msg)
       if (!msg.tool_calls) break
 

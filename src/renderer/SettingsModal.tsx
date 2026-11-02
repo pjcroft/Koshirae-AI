@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { McpServerConfig, McpStatus, Policy, Provider, Settings, SmbCredential, ToolCategory } from '@shared/types'
+import type { McpServerConfig, McpStatus, Policy, Provider, Settings, SmbCredential, SubStatus, SubWhich, ToolCategory } from '@shared/types'
 
 const PRESETS: Omit<Provider, 'id'>[] = [
   { name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', apiKey: '' },
@@ -19,6 +19,10 @@ export default function SettingsModal(props: {
   const [mcpText, setMcpText] = useState(JSON.stringify(s.mcpServers, null, 2))
   const [smbText, setSmbText] = useState(JSON.stringify(s.smb, null, 2))
   const [err, setErr] = useState('')
+  const [subs, setSubs] = useState<SubStatus | null>(null)
+  const [login, setLogin] = useState<{ which: SubWhich; url?: string; instructions?: string; progress?: string } | null>(null)
+  const [codeText, setCodeText] = useState('')
+  const [subsErr, setSubsErr] = useState('')
   const [mp, setMp] = useState(s.activeProviderId)
   const [all, setAll] = useState<string[]>([])
   const [filter, setFilter] = useState('')
@@ -31,6 +35,27 @@ export default function SettingsModal(props: {
     setLoadErr('')
     void window.api.listModels(mp).then(setAll).catch((e) => setLoadErr(String(e.message ?? e)))
   }, [mp])
+
+  useEffect(() => {
+    void window.api.subsStatus().then(setSubs).catch(() => {})
+    const offAuth = window.api.onSubsAuth((e) => {
+      setLogin((l) =>
+        l && l.which === e.which
+          ? { ...l, url: e.url ?? l.url, instructions: e.instructions ?? l.instructions, progress: e.progress ?? l.progress }
+          : l
+      )
+    })
+    const offDone = window.api.onSubsDone((e) => {
+      setLogin((l) => (l?.which === e.which ? null : l))
+      setCodeText('')
+      setSubsErr(e.ok ? '' : e.error ?? 'Sign-in failed')
+      void window.api.subsStatus().then(setSubs).catch(() => {})
+    })
+    return () => {
+      offAuth()
+      offDone()
+    }
+  }, [])
   const shown = [...new Set([...enabled, ...all])]
     .filter((m) => m.toLowerCase().includes(filter.toLowerCase()))
     .slice(0, 300)
@@ -80,6 +105,72 @@ export default function SettingsModal(props: {
             <option key={p.name} value={i}>{p.name}</option>
           ))}
         </select>
+
+        <h4>Subscription accounts</h4>
+        {(
+          [
+            { which: 'anthropic', label: 'Claude (Pro/Max)', btn: 'Sign in with Claude' },
+            { which: 'codex', label: 'ChatGPT (Plus/Pro)', btn: 'Sign in with ChatGPT' }
+          ] as { which: SubWhich; label: string; btn: string }[]
+        ).map(({ which, label, btn }) => {
+          const st = subs?.[which]
+          const active = login?.which === which
+          return (
+            <div key={which}>
+              <div className="row">
+                <span>
+                  {label}: {st ? (st.signedIn ? 'Signed in' : 'Not signed in') : '…'}
+                </span>
+                {st?.signedIn ? (
+                  <button className="btn" onClick={() => void window.api.subsLogout(which).then(setSubs)}>
+                    Sign out
+                  </button>
+                ) : (
+                  <button
+                    className="btn"
+                    disabled={!!login}
+                    onClick={() => {
+                      setSubsErr('')
+                      setLogin({ which })
+                      void window.api.subsLogin(which)
+                    }}
+                  >
+                    {btn}
+                  </button>
+                )}
+              </div>
+              {active && login && (
+                <>
+                  <p className="hint">
+                    {login.progress || login.instructions || 'A sign-in page should open in your browser — finish signing in there.'}
+                  </p>
+                  {login.url && (
+                    <div className="row">
+                      <button className="btn" onClick={() => window.open(login.url)}>
+                        Reopen sign-in page
+                      </button>
+                    </div>
+                  )}
+                  <div className="row">
+                    <input
+                      value={codeText}
+                      onChange={(e) => setCodeText(e.target.value)}
+                      placeholder="Stuck? Paste the redirect URL or code from the browser here"
+                    />
+                    <button className="btn" onClick={() => void window.api.subsSubmitCode(codeText)}>
+                      Submit
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )
+        })}
+        {subsErr && <div className="err">{subsErr}</div>}
+        <p className="hint">
+          Signing in adds your plan to the matching subscription provider above. Usage counts against your Claude /
+          ChatGPT plan limits, not an API key.
+        </p>
 
         <h4>Models shown in chat</h4>
         <div className="row">

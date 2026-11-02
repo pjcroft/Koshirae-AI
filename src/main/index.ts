@@ -2,10 +2,11 @@ import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { execFile } from 'child_process'
 import { join } from 'path'
 import { randomUUID } from 'crypto'
-import type { Conversation, Settings } from '@shared/types'
+import type { Conversation, Settings, SubWhich } from '@shared/types'
 import * as store from './store'
 import { deleted, isRunning, listModels, respondApproval, runAgent, stopAll, stopConv } from './agent'
 import { getMcpStatus, startMcp, stopMcp } from './mcp'
+import { logout as subsLogout, startLogin, subStatus, submitCode } from './subs'
 
 let win: BrowserWindow | null = null
 let settings: Settings
@@ -59,9 +60,12 @@ app.whenReady().then(async () => {
   ipcMain.handle('settings:get', () => settings)
   ipcMain.handle('settings:set', async (_e, s: Settings) => {
     const mcpChanged = JSON.stringify(s.mcpServers) !== JSON.stringify(settings.mcpServers)
-    settings = s
-    await store.saveSettings(s)
-    return mcpChanged ? startMcp(s.mcpServers) : getMcpStatus()
+    // Subscription credentials are managed only via the subs:* IPC; renderer state may be
+    // stale (e.g. sign-in finished while Settings was closed), so never let a settings
+    // save wipe them.
+    settings = { ...s, subscriptions: settings.subscriptions }
+    await store.saveSettings(settings)
+    return mcpChanged ? startMcp(settings.mcpServers) : getMcpStatus()
   })
   ipcMain.handle('convs:list', () => store.listConvs())
   ipcMain.handle('convs:get', (_e, id: string) => store.loadConv(id))
@@ -105,6 +109,15 @@ app.whenReady().then(async () => {
   ipcMain.handle('chat:stop', (_e, id: string) => stopConv(id))
   ipcMain.handle('approval:respond', (_e, id: string, allow: boolean) => respondApproval(id, allow))
   ipcMain.handle('mcp:status', () => getMcpStatus())
+  ipcMain.handle('subs:status', () => subStatus(settings))
+  ipcMain.handle('subs:login', (_e, which: SubWhich) => {
+    if (win) void startLogin(win, settings, which) // progress/results arrive via subs:auth / subs:done
+  })
+  ipcMain.handle('subs:submit', (_e, code: string) => submitCode(code))
+  ipcMain.handle('subs:logout', async (_e, which: SubWhich) => {
+    await subsLogout(settings, which)
+    return subStatus(settings)
+  })
   ipcMain.handle('dialog:dir', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
     return r.canceled ? null : r.filePaths[0]

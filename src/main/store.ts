@@ -2,13 +2,27 @@ import { app, safeStorage } from 'electron'
 import { homedir } from 'os'
 import { join } from 'path'
 import { promises as fs } from 'fs'
-import type { Conversation, ConversationMeta, Settings } from '@shared/types'
+import type { Conversation, ConversationMeta, Provider, Settings, SubCreds } from '@shared/types'
+
+export const subProviders = (): Provider[] => [
+  { id: 'claude-sub', name: 'Claude (subscription)', baseUrl: '', apiKey: '', kind: 'claude-sub' },
+  { id: 'chatgpt-sub', name: 'ChatGPT (subscription)', baseUrl: '', apiKey: '', kind: 'chatgpt-sub' }
+]
+
+// Older saved settings predate subscription providers; make sure they exist.
+export function ensureSubProviders(s: Settings): Settings {
+  const providers = [...s.providers]
+  for (const sp of subProviders())
+    if (!providers.some((p) => p.kind === sp.kind)) providers.push({ ...sp })
+  return providers.length === s.providers.length ? s : { ...s, providers }
+}
 
 export const defaultSettings = (): Settings => ({
   providers: [
     { id: 'openrouter', name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', apiKey: '' },
     { id: 'ollama', name: 'Ollama (local)', baseUrl: 'http://localhost:11434/v1', apiKey: '' },
-    { id: 'lmstudio', name: 'LM Studio (local)', baseUrl: 'http://localhost:1234/v1', apiKey: '' }
+    { id: 'lmstudio', name: 'LM Studio (local)', baseUrl: 'http://localhost:1234/v1', apiKey: '' },
+    ...subProviders()
   ],
   activeProviderId: 'openrouter',
   model: 'anthropic/claude-sonnet-4.5',
@@ -18,7 +32,8 @@ export const defaultSettings = (): Settings => ({
   workingDir: homedir(),
   policy: { read: 'allow', write: 'ask', exec: 'ask', mcp: 'ask' },
   mcpServers: [],
-  smb: []
+  smb: [],
+  subscriptions: {}
 })
 
 const dir = () => app.getPath('userData')
@@ -40,17 +55,22 @@ function decrypt(v: string): string {
 }
 
 function mapSecrets(s: Settings, f: (v: string) => string): Settings {
+  const mapCreds = (c?: SubCreds): SubCreds | undefined =>
+    c ? { ...c, access: f(c.access || ''), refresh: f(c.refresh || '') } : c
   return {
     ...s,
     providers: s.providers.map((p) => ({ ...p, apiKey: f(p.apiKey || '') })),
-    smb: s.smb.map((c) => ({ ...c, password: c.password ? f(c.password) : c.password }))
+    smb: s.smb.map((c) => ({ ...c, password: c.password ? f(c.password) : c.password })),
+    subscriptions: s.subscriptions
+      ? { anthropic: mapCreds(s.subscriptions.anthropic), codex: mapCreds(s.subscriptions.codex) }
+      : s.subscriptions
   }
 }
 
 export async function loadSettings(): Promise<Settings> {
   try {
     const raw = JSON.parse(await fs.readFile(settingsFile(), 'utf8'))
-    return mapSecrets({ ...defaultSettings(), ...raw }, decrypt)
+    return ensureSubProviders(mapSecrets({ ...defaultSettings(), ...raw }, decrypt))
   } catch {
     return defaultSettings()
   }
