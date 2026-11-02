@@ -70,10 +70,12 @@ export default function App() {
 
   useEffect(() => {
     if (!settings) return
-    api.listModels(settings.activeProviderId).then(setModels).catch(() => setModels([]))
+    void api.listModels(settings.activeProviderId).then(setModels).catch(() => setModels([]))
   }, [settings?.activeProviderId, settings?.providers])
 
-  useEffect(() => endRef.current?.scrollIntoView({ block: 'end' }), [conv?.messages.length, streaming, approvals.length])
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: 'end' })
+  }, [conv?.messages.length, streaming, approvals.length])
 
   if (!settings) return null
 

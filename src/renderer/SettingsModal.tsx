@@ -29,7 +29,7 @@ export default function SettingsModal(props: {
   useEffect(() => {
     setAll([])
     setLoadErr('')
-    window.api.listModels(mp).then(setAll).catch((e) => setLoadErr(String(e.message ?? e)))
+    void window.api.listModels(mp).then(setAll).catch((e) => setLoadErr(String(e.message ?? e)))
   }, [mp])
   const shown = [...new Set([...enabled, ...all])]
     .filter((m) => m.toLowerCase().includes(filter.toLowerCase()))
