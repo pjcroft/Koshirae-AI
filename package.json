@@ -14,7 +14,7 @@
   },
   "build": {
     "appId": "dev.local.harness",
-    "productName": "Harness",
+    "productName": "PC-AI",
     "files": [
       "out/**/*"
     ],

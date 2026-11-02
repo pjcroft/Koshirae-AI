@@ -107,7 +107,7 @@ export default function SettingsModal(props: {
         </div>
 
         <h4>System prompt</h4>
-        <textarea rows={4} value={s.systemPrompt} onChange={(e) => setS({ ...s, systemPrompt: e.target.value })} />
+        <textarea rows={10} value={s.systemPrompt} onChange={(e) => setS({ ...s, systemPrompt: e.target.value })} />
 
         <h4>Working directory</h4>
         <div className="row">
@@ -132,7 +132,7 @@ export default function SettingsModal(props: {
 
         <h4>MCP servers (JSON)</h4>
         <textarea
-          rows={6}
+          rows={12}
           value={mcpText}
           onChange={(e) => setMcpText(e.target.value)}
           placeholder={'[{"name":"fs","command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/home/me"]}]'}
@@ -145,7 +145,7 @@ export default function SettingsModal(props: {
 
         <h4>SMB credentials (JSON)</h4>
         <textarea
-          rows={4}
+          rows={8}
           value={smbText}
           onChange={(e) => setSmbText(e.target.value)}
           placeholder={'[{"host":"nas.tailnet.ts.net","username":"me","password":"…"}]'}
