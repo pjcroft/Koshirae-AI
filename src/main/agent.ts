@@ -7,7 +7,7 @@ import { mcpTools } from './mcp'
 import { saveConv } from './store'
 import { getModels, stream } from '@mariozechner/pi-ai'
 import type { AssistantMessage as PiAssistantMessage, Context as PiContext, Message as PiMessage, Model as PiModel, Tool as PiTool } from '@mariozechner/pi-ai'
-import { fetchLiveCodexModelIds, getValidApiKey } from './subs'
+import { fetchLiveAnthropicModelIds, fetchLiveCodexModelIds, getValidApiKey } from './subs'
 
 const pending = new Map<string, (allow: boolean) => void>()
 const running = new Map<string, AbortController>()
@@ -35,7 +35,15 @@ const headers = (p: Provider): Record<string, string> => {
 const base = (p: Provider) => p.baseUrl.replace(/\/+$/, '')
 
 export async function listModels(p: Provider, settings?: Settings): Promise<string[]> {
-  if (p.kind === 'claude-sub') return getModels('anthropic').map((m) => m.id).sort()
+  if (p.kind === 'claude-sub') {
+    // Prefer the account's live list — pi-ai's static catalog goes stale the
+    // same way the Codex one did. The live list is newest-first; keep its order.
+    if (settings) {
+      const live = await fetchLiveAnthropicModelIds(settings)
+      if (live?.length) return live
+    }
+    return getModels('anthropic').map((m) => m.id).sort()
+  }
   if (p.kind === 'chatgpt-sub') {
     // Prefer the account's live list from the backend — pi-ai's static catalog
     // goes stale (models retire / new families land between releases).

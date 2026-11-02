@@ -65,6 +65,10 @@ export function codexHeaders(token: string, accountId?: string): Record<string, 
   return headers
 }
 
+// Mirrors the current Codex CLI version: the models endpoint serves a legacy
+// list unless the client identifies a version, so send the CLI's.
+const CODEX_CLIENT_VERSION = '0.166.0'
+
 // Live Codex model list: pi-ai's static catalog goes stale between releases
 // (e.g. GPT-5.5 retired from ChatGPT sign-in while the catalog still listed
 // it), so prefer the account's real list from the backend. Cached for 10
@@ -83,7 +87,7 @@ export async function fetchLiveCodexModelIds(settings: Settings): Promise<string
     const now = Date.now()
     if (codexModelsCache && codexModelsCache.fingerprint === fingerprint && now - codexModelsCache.at < CODEX_MODELS_TTL_MS)
       return codexModelsCache.ids
-    const r = await fetch('https://chatgpt.com/backend-api/codex/models', {
+    const r = await fetch(`https://chatgpt.com/backend-api/codex/models?client_version=${CODEX_CLIENT_VERSION}`, {
       headers: codexHeaders(token, accountId),
       signal: AbortSignal.timeout(8_000)
     })
@@ -98,11 +102,59 @@ export async function fetchLiveCodexModelIds(settings: Settings): Promise<string
           : []
     const ids: string[] = []
     for (const e of entries) {
+      // The backend marks internal models visibility:"hide"; only entries it
+      // flags "list" (or doesn't flag at all) belong in the picker.
+      if (e && typeof e === 'object' && 'visibility' in (e as any) && (e as any).visibility !== 'list') continue
       const raw = typeof e === 'string' ? e : (e as any)?.slug || (e as any)?.id || (e as any)?.model
       if (typeof raw === 'string' && raw && !ids.includes(raw)) ids.push(raw)
     }
     if (!ids.length) return null
     codexModelsCache = { ids, at: now, fingerprint }
+    return ids
+  } catch {
+    return null
+  }
+}
+
+// Live Claude model list, same reasoning as Codex: pi-ai's static catalog
+// tops out a family behind (4.x while the current family is 5.x). Anthropic's
+// /v1/models accepts the subscription OAuth bearer, so fetch the real list.
+// Response order is newest-first — keep it, don't sort. Same 10-minute cache
+// pattern as the Codex list, keyed by the anthropic credential expiry.
+let anthropicModelsCache: { ids: string[]; at: number; fingerprint: string } | null = null
+const ANTHROPIC_MODELS_TTL_MS = 10 * 60_000
+
+/** The account's live Claude model ids, newest first, or null when unavailable. */
+export async function fetchLiveAnthropicModelIds(settings: Settings): Promise<string[] | null> {
+  try {
+    const token = await getValidApiKey(settings, 'anthropic')
+    if (!token) return null
+    const fingerprint = `${settings.subscriptions?.anthropic?.expires ?? 0}`
+    const now = Date.now()
+    if (
+      anthropicModelsCache &&
+      anthropicModelsCache.fingerprint === fingerprint &&
+      now - anthropicModelsCache.at < ANTHROPIC_MODELS_TTL_MS
+    )
+      return anthropicModelsCache.ids
+    const r = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'anthropic-beta': 'oauth-2025-04-20',
+        'anthropic-version': '2023-06-01'
+      },
+      signal: AbortSignal.timeout(8_000)
+    })
+    if (!r.ok) return null
+    const body: any = await r.json().catch(() => null)
+    const entries: unknown[] = Array.isArray(body?.data) ? body.data : Array.isArray(body) ? body : []
+    const ids: string[] = []
+    for (const e of entries) {
+      const raw = typeof e === 'string' ? e : (e as any)?.id
+      if (typeof raw === 'string' && raw && !ids.includes(raw)) ids.push(raw)
+    }
+    if (!ids.length) return null
+    anthropicModelsCache = { ids, at: now, fingerprint }
     return ids
   } catch {
     return null

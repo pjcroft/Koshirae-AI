@@ -1,6 +1,6 @@
 {
   "name": "harness",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Multi-provider AI chat + agent harness (OpenRouter, OpenAI-compatible, Ollama, MCP)",
   "main": "out/main/index.mjs",
   "author": "you",
