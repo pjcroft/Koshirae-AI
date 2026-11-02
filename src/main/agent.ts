@@ -7,7 +7,7 @@ import { mcpTools } from './mcp'
 import { saveConv } from './store'
 import { getModels, stream } from '@mariozechner/pi-ai'
 import type { AssistantMessage as PiAssistantMessage, Context as PiContext, Message as PiMessage, Model as PiModel, Tool as PiTool } from '@mariozechner/pi-ai'
-import { getValidApiKey } from './subs'
+import { fetchLiveCodexModelIds, getValidApiKey } from './subs'
 
 const pending = new Map<string, (allow: boolean) => void>()
 const running = new Map<string, AbortController>()
@@ -34,9 +34,17 @@ const headers = (p: Provider): Record<string, string> => {
 }
 const base = (p: Provider) => p.baseUrl.replace(/\/+$/, '')
 
-export async function listModels(p: Provider): Promise<string[]> {
+export async function listModels(p: Provider, settings?: Settings): Promise<string[]> {
   if (p.kind === 'claude-sub') return getModels('anthropic').map((m) => m.id).sort()
-  if (p.kind === 'chatgpt-sub') return getModels('openai-codex').map((m) => m.id).sort()
+  if (p.kind === 'chatgpt-sub') {
+    // Prefer the account's live list from the backend — pi-ai's static catalog
+    // goes stale (models retire / new families land between releases).
+    if (settings) {
+      const live = await fetchLiveCodexModelIds(settings)
+      if (live?.length) return live
+    }
+    return getModels('openai-codex').map((m) => m.id).sort()
+  }
   const r = await fetch(base(p) + '/models', { headers: headers(p) })
   if (!r.ok) throw new Error(`HTTP ${r.status}`)
   const j: any = await r.json()
@@ -192,8 +200,17 @@ async function streamSubCompletion(
       `Not signed in — open Settings → Subscription accounts and sign in with ${which === 'anthropic' ? 'Claude' : 'ChatGPT'} first.`
     )
   const all = (which === 'anthropic' ? getModels('anthropic') : getModels('openai-codex')) as PiModel<any>[]
-  const model = all.find((m) => m.id === modelId)
-  if (!model) throw new Error(`Unknown model for ${p.name}: ${modelId}`)
+  let model = all.find((m) => m.id === modelId)
+  if (!model) {
+    // Not in pi-ai's static catalog (e.g. a live-listed model newer than the
+    // bundled catalog): clone the largest-context catalog model as a template
+    // so the request goes out with the requested id over the same api/baseUrl.
+    const template =
+      all.reduce<PiModel<any> | undefined>((best, m) => (best && best.contextWindow >= m.contextWindow ? best : m), undefined) ??
+      all[all.length - 1]
+    if (!template) throw new Error(`Unknown model for ${p.name}: ${modelId}`)
+    model = { ...template, id: modelId, name: modelId }
+  }
   const sys = messages.find((m) => m.role === 'system')
   const ctx: PiContext = {
     systemPrompt: typeof sys?.content === 'string' ? sys.content : undefined,

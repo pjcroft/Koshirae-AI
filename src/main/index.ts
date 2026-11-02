@@ -93,7 +93,7 @@ app.whenReady().then(async () => {
     stopConv(id)
     await store.deleteConv(id)
   })
-  ipcMain.handle('models:list', (_e, id: string) => listModels(provider(id)))
+  ipcMain.handle('models:list', (_e, id: string) => listModels(provider(id), settings))
   ipcMain.handle('chat:send', async (_e, a: { convId: string; text: string; providerId: string; model: string }) => {
     const conv = await store.loadConv(a.convId)
     if (!conv || !win) {

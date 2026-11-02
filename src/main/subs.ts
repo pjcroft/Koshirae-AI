@@ -1,3 +1,4 @@
+import { arch, platform, release } from 'node:os'
 import { shell, type BrowserWindow } from 'electron'
 import {
   anthropicOAuthProvider,
@@ -36,6 +37,76 @@ export async function getValidApiKey(settings: Settings, which: SubWhich): Promi
 export async function logout(settings: Settings, which: SubWhich): Promise<void> {
   if (settings.subscriptions) delete settings.subscriptions[which]
   await saveSettings(settings)
+}
+
+/** Account id embedded in a ChatGPT OAuth access token (the JWT claim pi-ai reads), if present. */
+export function codexAccountId(token: string): string | undefined {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'))
+    const id = payload?.['https://api.openai.com/auth']?.chatgpt_account_id
+    return typeof id === 'string' && id ? id : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Headers for chatgpt.com backend calls, mirroring pi-ai's Codex provider
+ * (buildBaseCodexHeaders) exactly. A bare Authorization fetch from Node gets a
+ * Cloudflare challenge page (HTTP 403 with an HTML body); this set is accepted.
+ */
+export function codexHeaders(token: string, accountId?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    originator: 'pi',
+    'User-Agent': `pi (${platform()} ${release()}; ${arch()})`
+  }
+  if (accountId) headers['chatgpt-account-id'] = accountId
+  return headers
+}
+
+// Live Codex model list: pi-ai's static catalog goes stale between releases
+// (e.g. GPT-5.5 retired from ChatGPT sign-in while the catalog still listed
+// it), so prefer the account's real list from the backend. Cached for 10
+// minutes, keyed by account id + credential expiry so a refresh or an account
+// switch refetches.
+let codexModelsCache: { ids: string[]; at: number; fingerprint: string } | null = null
+const CODEX_MODELS_TTL_MS = 10 * 60_000
+
+/** The account's live Codex model ids in backend order, or null when unavailable. */
+export async function fetchLiveCodexModelIds(settings: Settings): Promise<string[] | null> {
+  try {
+    const token = await getValidApiKey(settings, 'codex')
+    if (!token) return null
+    const accountId = codexAccountId(token)
+    const fingerprint = `${accountId ?? ''}:${settings.subscriptions?.codex?.expires ?? 0}`
+    const now = Date.now()
+    if (codexModelsCache && codexModelsCache.fingerprint === fingerprint && now - codexModelsCache.at < CODEX_MODELS_TTL_MS)
+      return codexModelsCache.ids
+    const r = await fetch('https://chatgpt.com/backend-api/codex/models', {
+      headers: codexHeaders(token, accountId),
+      signal: AbortSignal.timeout(8_000)
+    })
+    if (!r.ok) return null
+    const body: any = await r.json().catch(() => null)
+    const entries: unknown[] = Array.isArray(body)
+      ? body
+      : Array.isArray(body?.models)
+        ? body.models
+        : Array.isArray(body?.data)
+          ? body.data
+          : []
+    const ids: string[] = []
+    for (const e of entries) {
+      const raw = typeof e === 'string' ? e : (e as any)?.slug || (e as any)?.id || (e as any)?.model
+      if (typeof raw === 'string' && raw && !ids.includes(raw)) ids.push(raw)
+    }
+    if (!ids.length) return null
+    codexModelsCache = { ids, at: now, fingerprint }
+    return ids
+  } catch {
+    return null
+  }
 }
 
 // One shared pending prompt: pi-ai asks for manual input via onManualCodeInput and/or onPrompt;

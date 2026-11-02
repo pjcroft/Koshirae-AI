@@ -1,5 +1,5 @@
 import type { Settings, SourceUsage, SubWhich, UsageLine, UsageReport } from '@shared/types'
-import { getValidApiKey } from './subs'
+import { codexAccountId, codexHeaders, getValidApiKey } from './subs'
 
 // Usage visibility for the three metered sources: OpenRouter (API key) and the
 // two subscription plans (Claude / ChatGPT). Every fetch is best-effort: a
@@ -121,16 +121,6 @@ async function claudeUsage(settings: Settings): Promise<SourceUsage | undefined>
   return { ok: true, lines }
 }
 
-function codexAccountId(token: string): string | undefined {
-  try {
-    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'))
-    const id = payload?.['https://api.openai.com/auth']?.chatgpt_account_id
-    return typeof id === 'string' && id ? id : undefined
-  } catch {
-    return undefined
-  }
-}
-
 function windowLabel(seconds: unknown, fallback: string): string {
   const s = num(seconds)
   if (s === undefined) return fallback
@@ -145,9 +135,9 @@ async function chatgptUsage(settings: Settings): Promise<SourceUsage | undefined
   if (!settings.subscriptions?.codex) return undefined
   const { token, error } = await subToken(settings, 'codex')
   if (!token) return { ok: false, error: error ?? 'Not signed in', lines: [] }
-  const headers: Record<string, string> = { Authorization: `Bearer ${token}` }
-  const accountId = codexAccountId(token)
-  if (accountId) headers['ChatGPT-Account-Id'] = accountId
+  // Full pi-ai Codex header set (see codexHeaders in subs.ts): a bare
+  // Authorization fetch draws a Cloudflare challenge (HTTP 403 HTML page).
+  const headers = codexHeaders(token, codexAccountId(token))
   let f = await fetchJson('https://chatgpt.com/backend-api/codex/usage', headers)
   if (f.status === 404) f = await fetchJson('https://chatgpt.com/backend-api/wham/usage', headers)
   if (f.status < 200 || f.status >= 300) return { ok: false, error: httpError(f), lines: [] }
