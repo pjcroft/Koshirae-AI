@@ -1,4 +1,4 @@
-![Koshirae AI](logo.png)
+<p align="center"><img src="logo.png" alt="Koshirae AI" width="512"></p>
 
 # Koshirae AI
 
