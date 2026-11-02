@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
 import type { Conversation, Project, Settings, SubWhich } from '@shared/types'
 import * as store from './store'
-import { deleted, isRunning, listModels, respondApproval, runAgent, stopAll, stopConv } from './agent'
+import { compactConversation, deleted, isRunning, listModels, respondApproval, runAgent, stopAll, stopConv } from './agent'
 import { getMcpStatus, startMcp, stopMcp } from './mcp'
 import { logout as subsLogout, startLogin, subStatus, submitCode } from './subs'
 import { getUsage } from './usage'
@@ -116,6 +116,14 @@ app.whenReady().then(async () => {
     await runAgent(win, conv, settings, provider(a.providerId), a.model)
   })
   ipcMain.handle('chat:stop', (_e, id: string) => stopConv(id))
+  ipcMain.handle('chat:compact', async (_e, convId: string) => {
+    const conv = await store.loadConv(convId)
+    if (!conv) return { ok: false, compacted: false, summaryUpTo: 0 }
+    // Never compact under an active run — the run is reading the same history.
+    if (isRunning(convId)) return { ok: false, compacted: false, summaryUpTo: conv.summaryUpTo ?? 0 }
+    const r = await compactConversation(conv, settings, provider(conv.providerId), conv.model || settings.model, { force: true })
+    return { ok: true, compacted: r.compacted, summaryUpTo: r.summaryUpTo }
+  })
   ipcMain.handle('approval:respond', (_e, id: string, allow: boolean) => respondApproval(id, allow))
   ipcMain.handle('mcp:status', () => getMcpStatus())
   ipcMain.handle('subs:status', () => subStatus(settings))

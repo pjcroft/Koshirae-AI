@@ -16,6 +16,7 @@ const api: Api = {
   listModels: (id) => inv('models:list', id),
   send: (a) => inv('chat:send', a),
   stop: (id) => inv('chat:stop', id),
+  compactChat: (convId) => inv('chat:compact', convId),
   respond: (id, allow) => inv('approval:respond', id, allow),
   mcpStatus: () => inv('mcp:status'),
   subsStatus: () => inv('subs:status'),

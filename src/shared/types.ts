@@ -95,6 +95,11 @@ export interface Conversation {
   model: string
   projectId?: string
   messages: ChatMessage[]
+  // Context compaction: `summary` stands in for the first `summaryUpTo`
+  // entries of messages when a run is assembled. The full messages array is
+  // always kept (on disk and in the UI) — only what is sent changes.
+  summary?: string
+  summaryUpTo?: number
 }
 
 export interface ConversationMeta {
@@ -107,6 +112,7 @@ export interface ConversationMeta {
 export type ChatEvent =
   | { convId: string; type: 'message'; message: ChatMessage }
   | { convId: string; type: 'delta'; text: string }
+  | { convId: string; type: 'compacted'; summaryUpTo: number }
   | { convId: string; type: 'approval'; id: string; toolCallId: string; name: string; args: string; category: ToolCategory }
   | { convId: string; type: 'done' }
   | { convId: string; type: 'error'; error: string }
@@ -148,6 +154,7 @@ export interface Api {
   listModels(providerId: string): Promise<string[]>
   send(args: { convId: string; text: string; providerId: string; model: string }): Promise<void>
   stop(convId: string): Promise<void>
+  compactChat(convId: string): Promise<{ ok: boolean; compacted: boolean; summaryUpTo: number }>
   respond(id: string, allow: boolean): Promise<void>
   mcpStatus(): Promise<McpStatus[]>
   subsStatus(): Promise<SubStatus>

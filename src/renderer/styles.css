@@ -87,3 +87,8 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 .proj.active{background:var(--panel2);color:var(--text);box-shadow:inset 2px 0 var(--tan)}
 .proj:hover .x{visibility:visible}
 .ptag{flex:none;color:var(--tan);font-size:.68rem;border:1px solid rgba(217,199,165,.28);background:rgba(217,199,165,.06);border-radius:999px;padding:0 .45rem;white-space:nowrap}
+.compact-divider{align-self:center;color:var(--muted);font-size:.75rem;border:1px dashed var(--line);border-radius:999px;padding:.25rem .8rem;background:rgba(17,28,48,.5);white-space:nowrap}
+.ctx{color:var(--muted);font-size:.8rem;white-space:nowrap}
+.ctx-btn{padding:.35rem .7rem;font-size:.8rem}
+.ctx-btn:disabled{opacity:.45;cursor:default}
+.ctx-btn:disabled:hover{border-color:var(--line)}

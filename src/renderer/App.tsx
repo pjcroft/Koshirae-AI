@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import logo from './logo.png'
@@ -36,6 +36,7 @@ export default function App() {
   const [selProject, setSelProject] = useState<string | null>(null) // null = All chats
   const [mcp, setMcp] = useState<McpStatus[]>([])
   const [usage, setUsage] = useState<UsageReport | null>(null)
+  const [compacting, setCompacting] = useState(false)
   const convRef = useRef<Conversation | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
   convRef.current = conv
@@ -68,6 +69,10 @@ export default function App() {
         setApprovals((a) => a.filter((x) => x.convId !== e.convId))
         refreshList()
         loadUsage()
+      } else if (e.type === 'compacted') {
+        // Auto-compaction folded older messages into a summary — re-read the
+        // conversation so the divider and context meter reflect it.
+        if (cur) void api.getConv(e.convId).then((c) => c && setConv(c))
       } else if (!cur) return
       else if (e.type === 'delta') setStreaming((s) => s + e.text)
       else if (e.type === 'message') {
@@ -152,9 +157,44 @@ export default function App() {
     setApprovals((x) => x.filter((y) => y.id !== a.id))
   }
 
+  const compactNow = async () => {
+    if (!conv || compacting) return
+    setCompacting(true)
+    try {
+      const r = await api.compactChat(conv.id)
+      if (r.compacted) {
+        const fresh = await api.getConv(conv.id)
+        if (fresh) setConv(fresh)
+        refreshList()
+      }
+    } catch {
+    } finally {
+      setCompacting(false)
+    }
+  }
+
   const busy = !!conv && busyIds.has(conv.id)
   const myApprovals = approvals.filter((a) => a.convId === conv?.id)
   const msgs = conv?.messages ?? []
+
+  // Context meter: the same chars/4 estimate the main process uses, over
+  // what will actually be sent — the compaction summary (if any) plus the
+  // messages not folded into it.
+  const upTo = conv?.summaryUpTo ?? 0
+  const unsummarized = msgs.length - upTo
+  const estTok = (s: string) => Math.ceil(s.length / 4)
+  const ctxTokens =
+    (conv?.summary ? estTok(conv.summary) : 0) +
+    msgs
+      .slice(upTo)
+      .reduce(
+        (n, m) =>
+          n +
+          estTok(typeof m.content === 'string' ? m.content : '') +
+          (m.tool_calls ?? []).reduce((k, tc) => k + estTok(tc.function.arguments), 0),
+        0
+      )
+  const ctxLabel = ctxTokens >= 1000 ? `~${(ctxTokens / 1000).toFixed(ctxTokens >= 10_000 ? 0 : 1)}K` : `~${ctxTokens}`
   const results = new Map<string, ChatMessage>()
   msgs.forEach((m) => m.tool_call_id && results.set(m.tool_call_id, m))
 
@@ -293,6 +333,21 @@ export default function App() {
               </>
             )
           })()}
+          {conv && (
+            <span className="ctx" title="Estimated context sent to the model: the compaction summary (if any) plus the messages after it">
+              context {ctxLabel} tokens
+            </span>
+          )}
+          {conv && (
+            <button
+              className="btn ctx-btn"
+              disabled={busy || compacting || unsummarized < 16}
+              title="Summarize the older messages into a compact summary to shrink the context. The full history stays saved."
+              onClick={compactNow}
+            >
+              {compacting ? 'Compacting…' : 'Compact'}
+            </button>
+          )}
           <span className="cwd" title="Working directory">
             📁 {settings.workingDir}
           </span>
@@ -317,11 +372,15 @@ export default function App() {
               </div>
             </div>
           )}
-          {msgs.map((m, i) => {
-            if (m.role === 'user') return <div key={i} className="msg user">{m.content}</div>
-            if (m.role === 'assistant')
-              return (
-                <div key={i} className="msg bot">
+          {msgs.map((m, i) => (
+            <Fragment key={i}>
+              {upTo > 0 && i === upTo && (
+                <div className="compact-divider">Earlier context compacted into a summary — full history still saved</div>
+              )}
+              {m.role === 'user' ? (
+                <div className="msg user">{m.content}</div>
+              ) : m.role === 'assistant' ? (
+                <div className="msg bot">
                   {m.content && <Markdown remarkPlugins={[remarkGfm]}>{m.content}</Markdown>}
                   {m.tool_calls?.map((tc) => {
                     const r = results.get(tc.id)
@@ -344,9 +403,9 @@ export default function App() {
                     )
                   })}
                 </div>
-              )
-            return null
-          })}
+              ) : null}
+            </Fragment>
+          ))}
           {streaming && (
             <div className="msg bot">
               <Markdown remarkPlugins={[remarkGfm]}>{streaming}</Markdown>
