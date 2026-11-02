@@ -236,6 +236,48 @@ export const builtinTools: ToolDef[] = [
       const r = await fetch(url, { signal: c.signal })
       return `HTTP ${r.status}\n` + clip(await r.text())
     }
+  },
+  {
+    name: 'web_search',
+    description:
+      'Search the web using the user\'s own SearXNG instance. Use it for current information — news, prices, specs, documentation, anything recent or beyond your training knowledge — instead of answering from memory. Returns the top results with titles, URLs and snippets; follow up with http_fetch to read a promising page in full.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: str('Search query'),
+        count: { type: 'number', description: 'How many results to return (1–15, default 8)' }
+      },
+      required: ['query']
+    },
+    category: 'read',
+    run: async ({ query, count }, c) => {
+      const base = (c.settings.searxngUrl || '').trim().replace(/\/+$/, '')
+      if (!base) return 'Web search is not configured. Set a SearXNG URL in Settings → Web search.'
+      const raw = Math.floor(Number(count))
+      const n = Number.isFinite(raw) ? Math.min(15, Math.max(1, raw)) : 8
+      const url = `${base}/search?q=${encodeURIComponent(query)}&format=json&safesearch=0&language=en`
+      let data: any
+      try {
+        const r = await fetch(url, {
+          headers: { Accept: 'application/json' },
+          signal: AbortSignal.any([c.signal, AbortSignal.timeout(30_000)])
+        })
+        if (!r.ok) return `Error: SearXNG at ${base} returned HTTP ${r.status}.`
+        data = await r.json()
+      } catch (e: any) {
+        if (c.signal.aborted) throw e
+        return `Error: web search failed — no results from SearXNG at ${base} (${e?.message ?? e}). Check that the server is running and the URL in Settings → Web search is correct.`
+      }
+      const results = Array.isArray(data?.results) ? data.results : []
+      if (!results.length) return `No results found for "${query}".`
+      const lines = results.slice(0, n).map((r: any, i: number) => {
+        const title = String(r?.title ?? '').replace(/\s+/g, ' ').trim()
+        const link = String(r?.url ?? '').trim()
+        const snippet = String(r?.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 300)
+        return `${i + 1}. ${title}\n${link}${snippet ? `\n${snippet}` : ''}`
+      })
+      return clip(`Web search results for "${query}" (via SearXNG):\n\n` + lines.join('\n\n'))
+    }
   }
 ]
 

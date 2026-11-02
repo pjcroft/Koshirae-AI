@@ -69,6 +69,7 @@ export interface Settings {
   policy: Record<ToolCategory, Policy>
   mcpServers: McpServerConfig[]
   smb: SmbCredential[]
+  searxngUrl: string // SearXNG instance for the web_search tool; '' = not configured
   subscriptions?: { anthropic?: SubCreds; codex?: SubCreds }
 }
 

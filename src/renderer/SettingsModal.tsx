@@ -222,6 +222,16 @@ export default function SettingsModal(props: {
           <p className="hint">Nothing to show yet — add an OpenRouter key or sign in above.</p>
         )}
 
+        <h4>Web search</h4>
+        <div className="row">
+          <input
+            value={s.searxngUrl}
+            onChange={(e) => setS({ ...s, searxngUrl: e.target.value })}
+            placeholder="http://your-server:8899"
+          />
+        </div>
+        <p className="hint">Used by the web_search tool. Point it at a SearXNG instance with JSON output enabled.</p>
+
         <h4>Models shown in chat</h4>
         <div className="row">
           <select value={mp} onChange={(e) => setMp(e.target.value)}>

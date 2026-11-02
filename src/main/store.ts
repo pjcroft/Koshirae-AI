@@ -34,6 +34,7 @@ export const defaultSettings = (): Settings => ({
   policy: { read: 'allow', write: 'ask', exec: 'ask', mcp: 'ask' },
   mcpServers: [],
   smb: [],
+  searxngUrl: '',
   subscriptions: {}
 })
 
