@@ -19,6 +19,7 @@ const api: Api = {
   subsLogin: (which) => inv('subs:login', which),
   subsSubmitCode: (code) => inv('subs:submit', code),
   subsLogout: (which) => inv('subs:logout', which),
+  usageGet: () => inv('usage:get'),
   pickDir: () => inv('dialog:dir'),
   onEvent: (cb) => {
     const h = (_: unknown, e: ChatEvent) => cb(e)

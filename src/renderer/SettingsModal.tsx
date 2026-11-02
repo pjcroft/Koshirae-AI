@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { McpServerConfig, McpStatus, Policy, Provider, Settings, SmbCredential, SubStatus, SubWhich, ToolCategory } from '@shared/types'
+import type { McpServerConfig, McpStatus, Policy, Provider, Settings, SmbCredential, SubStatus, SubWhich, ToolCategory, UsageReport } from '@shared/types'
 
 const PRESETS: Omit<Provider, 'id'>[] = [
   { name: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', apiKey: '' },
@@ -23,6 +23,8 @@ export default function SettingsModal(props: {
   const [login, setLogin] = useState<{ which: SubWhich; url?: string; instructions?: string; progress?: string } | null>(null)
   const [codeText, setCodeText] = useState('')
   const [subsErr, setSubsErr] = useState('')
+  const [usage, setUsage] = useState<UsageReport | null>(null)
+  const [usageLoading, setUsageLoading] = useState(false)
   const [mp, setMp] = useState(s.activeProviderId)
   const [all, setAll] = useState<string[]>([])
   const [filter, setFilter] = useState('')
@@ -36,8 +38,18 @@ export default function SettingsModal(props: {
     void window.api.listModels(mp).then(setAll).catch((e) => setLoadErr(String(e.message ?? e)))
   }, [mp])
 
+  const loadUsage = () => {
+    setUsageLoading(true)
+    void window.api
+      .usageGet()
+      .then(setUsage)
+      .catch(() => setUsage({}))
+      .finally(() => setUsageLoading(false))
+  }
+
   useEffect(() => {
     void window.api.subsStatus().then(setSubs).catch(() => {})
+    loadUsage()
     const offAuth = window.api.onSubsAuth((e) => {
       setLogin((l) =>
         l && l.which === e.which
@@ -50,6 +62,7 @@ export default function SettingsModal(props: {
       setCodeText('')
       setSubsErr(e.ok ? '' : e.error ?? 'Sign-in failed')
       void window.api.subsStatus().then(setSubs).catch(() => {})
+      if (e.ok) loadUsage()
     })
     return () => {
       offAuth()
@@ -171,6 +184,43 @@ export default function SettingsModal(props: {
           Signing in adds your plan to the matching subscription provider above. Usage counts against your Claude /
           ChatGPT plan limits, not an API key.
         </p>
+
+        <h4>Usage</h4>
+        <div className="row">
+          <button className="btn" onClick={loadUsage} disabled={usageLoading}>
+            {usageLoading ? 'Refreshing…' : 'Refresh'}
+          </button>
+          {usageLoading && usage === null && <span className="hint">Loading…</span>}
+        </div>
+        {usage !== null &&
+          (
+            [
+              { key: 'openrouter', name: 'OpenRouter' },
+              { key: 'claude', name: 'Claude plan' },
+              { key: 'chatgpt', name: 'ChatGPT plan' }
+            ] as const
+          ).map(({ key, name }) => {
+            const src = usage[key]
+            if (!src) return null
+            return (
+              <div key={key} className="usage-src">
+                <div className="usage-name">{name}</div>
+                {src.ok ? (
+                  src.lines.map((l) => (
+                    <div key={l.label} className="usage-row">
+                      <span>{l.label}</span>
+                      <span>{l.value}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="mcp-stat bad">{src.error ?? 'Unavailable'}</div>
+                )}
+              </div>
+            )
+          })}
+        {usage !== null && !usage.openrouter && !usage.claude && !usage.chatgpt && (
+          <p className="hint">Nothing to show yet — add an OpenRouter key or sign in above.</p>
+        )}
 
         <h4>Models shown in chat</h4>
         <div className="row">

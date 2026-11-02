@@ -61,12 +61,19 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 .composer{display:flex;gap:.6rem;padding:.9rem 1.2rem;border-top:1px solid var(--line);background:rgba(11,18,32,.6)}
 .composer textarea{flex:1;resize:none;height:64px}
 .modal-back{position:fixed;inset:0;background:rgba(3,8,18,.7);display:flex;align-items:center;justify-content:center;z-index:10}
-.modal{width:min(920px,96vw);max-height:90vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:1.2rem 1.5rem;display:flex;flex-direction:column;gap:.5rem}
+.modal{width:min(920px,96vw);max-height:90vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:1rem 1.25rem;display:flex;flex-direction:column;gap:.5rem;font-size:.86rem}
+.modal>*{flex-shrink:0}
 .modal h3{margin:0}.modal h4{margin:.8rem 0 0;color:var(--tan);font-size:.8rem;letter-spacing:.14em;text-transform:uppercase}
 .row{display:flex;gap:.5rem;align-items:center}.row input{flex:1;min-width:0}.row.end{justify-content:flex-end;margin-top:1rem}
-.modal textarea{font-family:ui-monospace,Menlo,monospace;font-size:.9rem;line-height:1.5}
+.modal textarea{font-family:ui-monospace,Menlo,monospace;font-size:.82rem;line-height:1.45;flex:none}
 .hint{color:var(--muted);font-size:.8rem;margin:0}
 .mcp-stat{font-size:.82rem}.mcp-stat.ok{color:#34d399}.mcp-stat.bad{color:var(--accent2)}
-.modellist{max-height:200px;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:.4rem .6rem;background:var(--bg);display:flex;flex-direction:column;gap:2px;font-size:.85rem}
+.modellist{height:240px;flex:none;overflow:auto;border:1px solid var(--line);border-radius:8px;padding:.4rem .6rem;background:var(--bg);display:flex;flex-direction:column;gap:2px;font-size:.8rem}
 .modellist label{display:flex;gap:.5rem;align-items:center;cursor:pointer}
 .modellist input{flex:none}
+.usage-line{margin:0;text-align:center;color:var(--muted);font-size:.75rem;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.usage-line:hover{color:var(--text)}
+.usage-src{margin-top:.2rem}
+.usage-name{font-weight:600;font-size:.85rem;margin-bottom:.15rem}
+.usage-row{display:flex;gap:.5rem;justify-content:space-between;font-size:.82rem}
+.usage-row span:first-child{color:var(--muted)}

@@ -109,6 +109,23 @@ export interface McpStatus {
   error?: string
 }
 
+export interface UsageLine {
+  label: string
+  value: string
+}
+
+export interface SourceUsage {
+  ok: boolean
+  error?: string
+  lines: UsageLine[]
+}
+
+export interface UsageReport {
+  openrouter?: SourceUsage
+  claude?: SourceUsage
+  chatgpt?: SourceUsage
+}
+
 export interface Api {
   getSettings(): Promise<Settings>
   setSettings(s: Settings): Promise<McpStatus[]>
@@ -125,6 +142,7 @@ export interface Api {
   subsLogin(which: SubWhich): Promise<void>
   subsSubmitCode(code: string): Promise<boolean>
   subsLogout(which: SubWhich): Promise<SubStatus>
+  usageGet(): Promise<UsageReport>
   pickDir(): Promise<string | null>
   onEvent(cb: (e: ChatEvent) => void): () => void
   onSubsAuth(cb: (e: SubsAuthEvent) => void): () => void

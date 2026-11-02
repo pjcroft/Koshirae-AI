@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import logo from './logo.png'
-import type { ChatEvent, ChatMessage, Conversation, ConversationMeta, McpStatus, Settings } from '@shared/types'
+import type { ChatEvent, ChatMessage, Conversation, ConversationMeta, McpStatus, Settings, UsageReport } from '@shared/types'
 import SettingsModal from './SettingsModal'
 
 interface Approval {
@@ -34,14 +34,21 @@ export default function App() {
   const [models, setModels] = useState<string[]>([])
   const [showSettings, setShowSettings] = useState(false)
   const [mcp, setMcp] = useState<McpStatus[]>([])
+  const [usage, setUsage] = useState<UsageReport | null>(null)
   const convRef = useRef<Conversation | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
   convRef.current = conv
 
   const refreshList = () => api.listConvs().then(setConvs)
+  const loadUsage = () =>
+    api
+      .usageGet()
+      .then(setUsage)
+      .catch(() => {})
 
   useEffect(() => {
     api.getSettings().then(setSettings)
+    loadUsage()
     const t = [1500, 6000, 22000].map((ms) => setTimeout(() => api.mcpStatus().then(setMcp), ms))
     api.mcpStatus().then(setMcp)
     refreshList()
@@ -59,6 +66,7 @@ export default function App() {
         setBusyFor(e.convId, false)
         setApprovals((a) => a.filter((x) => x.convId !== e.convId))
         refreshList()
+        loadUsage()
       } else if (!cur) return
       else if (e.type === 'delta') setStreaming((s) => s + e.text)
       else if (e.type === 'message') {
@@ -71,7 +79,13 @@ export default function App() {
   useEffect(() => {
     if (!settings) return
     void api.listModels(settings.activeProviderId).then(setModels).catch(() => setModels([]))
+    loadUsage()
   }, [settings?.activeProviderId, settings?.providers])
+
+  useEffect(() => {
+    const t = setInterval(loadUsage, 5 * 60_000)
+    return () => clearInterval(t)
+  }, [])
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' })
@@ -130,6 +144,31 @@ export default function App() {
   const results = new Map<string, ChatMessage>()
   msgs.forEach((m) => m.tool_call_id && results.set(m.tool_call_id, m))
 
+  const activeProvider = settings.providers.find((p) => p.id === settings.activeProviderId)
+  const usageSrc =
+    !usage || !activeProvider
+      ? undefined
+      : activeProvider.kind === 'claude-sub'
+        ? usage.claude
+        : activeProvider.kind === 'chatgpt-sub'
+          ? usage.chatgpt
+          : activeProvider.baseUrl.includes('openrouter.ai') || activeProvider.id === 'openrouter'
+            ? usage.openrouter
+            : undefined
+  const usageName =
+    activeProvider?.kind === 'claude-sub'
+      ? 'Claude plan'
+      : activeProvider?.kind === 'chatgpt-sub'
+        ? 'ChatGPT plan'
+        : 'OpenRouter'
+  const usageText =
+    usageSrc?.ok && usageSrc.lines.length
+      ? `${usageName}: ${usageSrc.lines
+          .slice(0, 2)
+          .map((l) => `${l.label} ${l.value}`)
+          .join(' · ')}`
+      : ''
+
   return (
     <div className="app">
       <aside className="side">
@@ -162,6 +201,11 @@ export default function App() {
           <i className={mcp.some((m) => !m.ok) ? 'bad' : ''} />
           {mcp.length ? `${mcp.filter((m) => m.ok).length}/${mcp.length} MCP servers` : 'No MCP servers'}
         </p>
+        {usageText && (
+          <p className="usage-line" title="Open Settings" onClick={() => setShowSettings(true)}>
+            {usageText}
+          </p>
+        )}
         <button className="btn" onClick={() => setShowSettings(true)}>
           ⚙ Settings
         </button>

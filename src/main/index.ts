@@ -8,6 +8,7 @@ import * as store from './store'
 import { deleted, isRunning, listModels, respondApproval, runAgent, stopAll, stopConv } from './agent'
 import { getMcpStatus, startMcp, stopMcp } from './mcp'
 import { logout as subsLogout, startLogin, subStatus, submitCode } from './subs'
+import { getUsage } from './usage'
 
 // The main process is an ES module (see electron.vite.config.ts) so that
 // ESM-only dependencies such as @mariozechner/pi-ai load natively.
@@ -123,6 +124,7 @@ app.whenReady().then(async () => {
     await subsLogout(settings, which)
     return subStatus(settings)
   })
+  ipcMain.handle('usage:get', () => getUsage(settings))
   ipcMain.handle('dialog:dir', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
     return r.canceled ? null : r.filePaths[0]
