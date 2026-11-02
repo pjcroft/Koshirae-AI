@@ -52,6 +52,12 @@ export interface SmbCredential {
 export type ToolCategory = 'read' | 'write' | 'exec' | 'mcp'
 export type Policy = 'ask' | 'allow'
 
+export interface Project {
+  id: string
+  name: string
+  path: string
+}
+
 export interface Settings {
   providers: Provider[]
   activeProviderId: string
@@ -59,6 +65,7 @@ export interface Settings {
   enabledModels: Record<string, string[]> // per provider id; empty = show all
   systemPrompt: string
   workingDir: string
+  projects: Project[]
   policy: Record<ToolCategory, Policy>
   mcpServers: McpServerConfig[]
   smb: SmbCredential[]
@@ -86,6 +93,7 @@ export interface Conversation {
   updatedAt: number
   providerId: string
   model: string
+  projectId?: string
   messages: ChatMessage[]
 }
 
@@ -93,6 +101,7 @@ export interface ConversationMeta {
   id: string
   title: string
   updatedAt: number
+  projectId?: string
 }
 
 export type ChatEvent =
@@ -131,8 +140,11 @@ export interface Api {
   setSettings(s: Settings): Promise<McpStatus[]>
   listConvs(): Promise<ConversationMeta[]>
   getConv(id: string): Promise<Conversation | null>
-  newConv(): Promise<Conversation>
+  newConv(projectId?: string): Promise<Conversation>
   deleteConv(id: string): Promise<void>
+  projectsPickDir(): Promise<string | null>
+  projectsAdd(name: string, path: string): Promise<Project>
+  projectsRemove(id: string): Promise<void>
   listModels(providerId: string): Promise<string[]>
   send(args: { convId: string; text: string; providerId: string; model: string }): Promise<void>
   stop(convId: string): Promise<void>

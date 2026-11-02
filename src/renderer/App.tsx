@@ -33,6 +33,7 @@ export default function App() {
   const [approvals, setApprovals] = useState<Approval[]>([])
   const [models, setModels] = useState<string[]>([])
   const [showSettings, setShowSettings] = useState(false)
+  const [selProject, setSelProject] = useState<string | null>(null) // null = All chats
   const [mcp, setMcp] = useState<McpStatus[]>([])
   const [usage, setUsage] = useState<UsageReport | null>(null)
   const convRef = useRef<Conversation | null>(null)
@@ -99,11 +100,24 @@ export default function App() {
     setConv(await api.getConv(id))
   }
   const newChat = async () => {
-    const c = await api.newConv()
+    const c = await api.newConv(selProject ?? undefined)
     setConv(c)
     setStreaming('')
     setError('')
     refreshList()
+  }
+  const addProject = async () => {
+    const dir = await api.projectsPickDir()
+    if (!dir) return
+    const name = dir.split(/[\\/]/).filter(Boolean).pop() ?? dir
+    const p = await api.projectsAdd(name, dir)
+    api.getSettings().then(setSettings)
+    setSelProject(p.id)
+  }
+  const removeProject = async (id: string) => {
+    await api.projectsRemove(id)
+    if (selProject === id) setSelProject(null)
+    api.getSettings().then(setSettings)
   }
   const del = async (id: string) => {
     await api.deleteConv(id)
@@ -120,7 +134,7 @@ export default function App() {
     const text = input.trim()
     if (!text || busy) return
     let c = conv
-    if (!c) c = await api.newConv()
+    if (!c) c = await api.newConv(selProject ?? undefined)
     const withUser: Conversation = {
       ...c,
       title: c.messages.length ? c.title : text.slice(0, 48),
@@ -180,22 +194,60 @@ export default function App() {
         <button className="btn primary" onClick={newChat}>
           + New chat
         </button>
-        <div className="convs">
-          {convs.map((c) => (
-            <div key={c.id} className={'conv' + (conv?.id === c.id ? ' active' : '')} onClick={() => open(c.id)}>
-              <span>{c.title}</span>
+        <div className="projects">
+          <div className="proj-head">
+            <span>Projects</span>
+            <button className="proj-add" title="New project" onClick={addProject}>
+              + New
+            </button>
+          </div>
+          <div className={'proj' + (selProject === null ? ' active' : '')} onClick={() => setSelProject(null)}>
+            <span>All chats</span>
+          </div>
+          {(settings.projects ?? []).map((p) => (
+            <div
+              key={p.id}
+              className={'proj' + (selProject === p.id ? ' active' : '')}
+              title={p.path}
+              onClick={() => setSelProject(p.id)}
+            >
+              <span>{p.name}</span>
               <button
                 className="x"
-                title="Delete"
+                title="Remove project (folder is not touched)"
                 onClick={(e) => {
                   e.stopPropagation()
-                  del(c.id)
+                  removeProject(p.id)
                 }}
               >
                 ×
               </button>
             </div>
           ))}
+        </div>
+        <div className="convs">
+          {(selProject ? convs.filter((c) => c.projectId === selProject) : convs).map((c) => {
+            const tag =
+              selProject === null && c.projectId
+                ? settings.projects?.find((p) => p.id === c.projectId)?.name
+                : undefined
+            return (
+              <div key={c.id} className={'conv' + (conv?.id === c.id ? ' active' : '')} onClick={() => open(c.id)}>
+                <span>{c.title}</span>
+                {tag && <span className="ptag">{tag}</span>}
+                <button
+                  className="x"
+                  title="Delete"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    del(c.id)
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            )
+          })}
         </div>
         <p className="brand-note">
           <i className={mcp.some((m) => !m.ok) ? 'bad' : ''} />

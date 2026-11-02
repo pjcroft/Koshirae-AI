@@ -1,9 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { execFile } from 'child_process'
+import { existsSync } from 'fs'
+import { writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
-import type { Conversation, Settings, SubWhich } from '@shared/types'
+import type { Conversation, Project, Settings, SubWhich } from '@shared/types'
 import * as store from './store'
 import { deleted, isRunning, listModels, respondApproval, runAgent, stopAll, stopConv } from './agent'
 import { getMcpStatus, startMcp, stopMcp } from './mcp'
@@ -75,7 +77,7 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('convs:list', () => store.listConvs())
   ipcMain.handle('convs:get', (_e, id: string) => store.loadConv(id))
-  ipcMain.handle('convs:new', async () => {
+  ipcMain.handle('convs:new', async (_e, projectId?: string) => {
     const c: Conversation = {
       id: randomUUID(),
       title: 'New chat',
@@ -83,6 +85,7 @@ app.whenReady().then(async () => {
       updatedAt: Date.now(),
       providerId: settings.activeProviderId,
       model: settings.model,
+      ...(projectId ? { projectId } : {}),
       messages: []
     }
     await store.saveConv(c)
@@ -125,6 +128,31 @@ app.whenReady().then(async () => {
     return subStatus(settings)
   })
   ipcMain.handle('usage:get', () => getUsage(settings))
+  ipcMain.handle('projects:pick-dir', async () => {
+    const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
+    return r.canceled ? null : r.filePaths[0]
+  })
+  ipcMain.handle('projects:add', async (_e, name: string, path: string) => {
+    const p: Project = { id: randomUUID(), name, path }
+    settings = { ...settings, projects: [...(settings.projects ?? []), p] }
+    await store.saveSettings(settings)
+    // Seed the project's memory file — only when the folder doesn't have one
+    // yet; an existing PROJECT.md is the user's and is never overwritten.
+    try {
+      const memFile = join(path, 'PROJECT.md')
+      if (!existsSync(memFile)) {
+        const created = new Date().toISOString().slice(0, 10)
+        await writeFile(memFile, `# ${name}\n\nProject folder: ${path}\nCreated: ${created}\n\n## Notes\n\n## Decisions\n`)
+      }
+    } catch {}
+    return p
+  })
+  ipcMain.handle('projects:remove', async (_e, id: string) => {
+    // Removes only the record — the folder and its files are never touched.
+    // Chats keep their projectId; a dangling id behaves as "no project".
+    settings = { ...settings, projects: (settings.projects ?? []).filter((p) => p.id !== id) }
+    await store.saveSettings(settings)
+  })
   ipcMain.handle('dialog:dir', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory'] })
     return r.canceled ? null : r.filePaths[0]

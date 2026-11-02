@@ -30,6 +30,7 @@ export const defaultSettings = (): Settings => ({
   systemPrompt:
     'You are PC AI, a capable assistant running on the user\'s computer with tools for local files, shell commands, SSH, SMB shares, and Tailscale. Use tools when they help; be concise and careful with anything destructive.',
   workingDir: homedir(),
+  projects: [],
   policy: { read: 'allow', write: 'ask', exec: 'ask', mcp: 'ask' },
   mcpServers: [],
   smb: [],
@@ -109,7 +110,7 @@ export async function listConvs(): Promise<ConversationMeta[]> {
     for (const f of files.filter((f) => f.endsWith('.json'))) {
       try {
         const c: Conversation = JSON.parse(await fs.readFile(join(convDir(), f), 'utf8'))
-        out.push({ id: c.id, title: c.title, updatedAt: c.updatedAt })
+        out.push({ id: c.id, title: c.title, updatedAt: c.updatedAt, projectId: c.projectId })
       } catch {}
     }
     return out.sort((a, b) => b.updatedAt - a.updatedAt)

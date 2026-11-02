@@ -77,3 +77,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 .usage-name{font-weight:600;font-size:.85rem;margin-bottom:.15rem}
 .usage-row{display:flex;gap:.5rem;justify-content:space-between;font-size:.82rem}
 .usage-row span:first-child{color:var(--muted)}
+.projects{display:flex;flex-direction:column;gap:2px}
+.proj-head{display:flex;justify-content:space-between;align-items:center;padding:.15rem .6rem 0;color:var(--tan);font-size:.68rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+.proj-add{background:none;border:0;color:var(--muted);cursor:pointer;font:inherit;font-size:.68rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;padding:0}
+.proj-add:hover{color:var(--accent)}
+.proj{display:flex;justify-content:space-between;align-items:center;gap:.4rem;padding:.35rem .6rem;border-radius:8px;cursor:pointer;color:var(--muted);font-size:.85rem}
+.proj span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.proj:hover{background:var(--panel2)}
+.proj.active{background:var(--panel2);color:var(--text);box-shadow:inset 2px 0 var(--tan)}
+.proj:hover .x{visibility:visible}
+.ptag{flex:none;color:var(--tan);font-size:.68rem;border:1px solid rgba(217,199,165,.28);background:rgba(217,199,165,.06);border-radius:999px;padding:0 .45rem;white-space:nowrap}

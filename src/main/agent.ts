@@ -1,5 +1,8 @@
 import { randomUUID } from 'crypto'
+import { existsSync } from 'fs'
+import { readFile } from 'fs/promises'
 import { homedir, platform } from 'os'
+import { join } from 'path'
 import type { BrowserWindow } from 'electron'
 import type { ChatEvent, ChatMessage, Conversation, Provider, Settings, ToolCall } from '@shared/types'
 import { builtinTools, ToolDef } from './tools'
@@ -274,10 +277,33 @@ export async function runAgent(
     emit({ convId: conv.id, type: 'message', message: m })
   }
 
+  // --- Projects: a chat may belong to a project (a folder on disk). For
+  // project chats the run works in that folder, and the folder's PROJECT.md
+  // memory file is injected into the system prompt. Any project problem
+  // (record removed, folder gone) degrades to a normal chat — never a failure.
+  const project = conv.projectId ? settings.projects?.find((p) => p.id === conv.projectId) : undefined
+  const projectOk = !!project && existsSync(project.path)
+  const eff: Settings = projectOk ? { ...settings, workingDir: project!.path } : settings
+  let projectBlock = ''
+  if (project && projectOk) {
+    let mem = ''
+    try {
+      mem = await readFile(join(project.path, 'PROJECT.md'), 'utf8')
+    } catch {}
+    if (mem.length > 24_000) mem = mem.slice(0, 24_000) + '\n\n[Note: PROJECT.md was truncated at 24,000 characters.]'
+    const intro = `Project: "${project.name}" — you are working in this project's folder.`
+    projectBlock = mem.trim()
+      ? `${intro} Below is the project's memory file (PROJECT.md), maintained across chats in this project. Keep it updated with your file tools when you learn durable facts, decisions, or context about this project.\n\n--- PROJECT.md ---\n${mem}`
+      : `${intro} The project has no PROJECT.md yet — you may create it in the project folder to record durable facts, decisions, and context for future chats in this project.`
+  } else if (project) {
+    projectBlock = `Note: this chat belongs to the project "${project.name}", but its folder (${project.path}) was not found — you are working in the default directory instead.`
+  }
+
   const sys: ChatMessage = {
     role: 'system',
     content:
-      `${settings.systemPrompt}\n\nEnvironment: ${platform()}, home ${homedir()}, working dir ${settings.workingDir}, date ${new Date().toDateString()}.`
+      `${eff.systemPrompt}\n\nEnvironment: ${platform()}, home ${homedir()}, working dir ${eff.workingDir}, date ${new Date().toDateString()}.` +
+      (projectBlock ? `\n\n${projectBlock}` : '')
   }
 
   try {
@@ -286,7 +312,7 @@ export async function runAgent(
       const isSub = provider.kind === 'claude-sub' || provider.kind === 'chatgpt-sub'
       const msg = isSub
         ? await streamSubCompletion(
-            settings,
+            eff,
             provider,
             model,
             [sys, ...repairOrphans(conv.messages)],
@@ -319,7 +345,7 @@ export async function runAgent(
           }
           if (args === null) result = 'Error: arguments were not valid JSON.'
           else {
-            let allowed = settings.policy[tool.category] === 'allow'
+            let allowed = eff.policy[tool.category] === 'allow'
             if (!allowed) {
               const id = randomUUID()
               emit({
@@ -339,7 +365,7 @@ export async function runAgent(
             if (!allowed) result = ac.signal.aborted ? 'Cancelled by user.' : 'The user denied this tool call.'
             else {
               try {
-                result = await tool.run(args, { settings, signal: ac.signal })
+                result = await tool.run(args, { settings: eff, signal: ac.signal })
               } catch (e: any) {
                 result = `Error: ${e?.message ?? e}`
               }
