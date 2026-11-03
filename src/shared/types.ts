@@ -172,6 +172,8 @@ export interface VoiceResult {
 export interface NormalizeImageResult {
   ok: boolean
   attachment?: ImageAttachment
+  width?: number // source pixel size, before any downscale
+  height?: number
   error?: string
 }
 

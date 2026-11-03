@@ -15,16 +15,26 @@ import type {
   UsageReport
 } from '@shared/types'
 import SettingsModal from './SettingsModal'
-import { BROWSER_DECODABLE_MIMES, IMAGE_EXT_RE, sniffImageMime } from '@shared/imaging'
+import { BROWSER_DECODABLE_MIMES, IMAGE_EXT_RE, dedupeDecisions, hashBytes, sniffImageMime } from '@shared/imaging'
 
 const MAX_IMAGES = 4 // attachments per message
 const MAX_IMAGE_EDGE = 2048 // px on the long edge after downscaling
 
-// Pasted/dropped image → attachment: decode, downscale to at most
+// A decoded image: the attachment to store, plus its SOURCE pixel
+// dimensions (before downscale). Dimensions are batch-transient — the
+// paste dedupe gate compares clipboard format twins by them — and are
+// never stored on the attachment itself.
+interface DecodedImage {
+  attachment: ImageAttachment
+  width: number
+  height: number
+}
+
+// Pasted/dropped image → decoded image: decode, downscale to at most
 // MAX_IMAGE_EDGE on the long edge via canvas, and re-encode as PNG. The
 // downscale keeps conversation files (base64 inline) and provider payloads
 // sane for full-screen screenshots.
-async function fileToAttachment(file: Blob): Promise<ImageAttachment> {
+async function fileToAttachment(file: Blob): Promise<DecodedImage> {
   const url = URL.createObjectURL(file)
   try {
     const img = await new Promise<HTMLImageElement>((res, rej) => {
@@ -33,15 +43,17 @@ async function fileToAttachment(file: Blob): Promise<ImageAttachment> {
       i.onerror = () => rej(new Error('unreadable image'))
       i.src = url
     })
-    const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(img.naturalWidth, img.naturalHeight))
+    const width = img.naturalWidth
+    const height = img.naturalHeight
+    const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(width, height))
     const canvas = document.createElement('canvas')
-    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale))
-    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale))
+    canvas.width = Math.max(1, Math.round(width * scale))
+    canvas.height = Math.max(1, Math.round(height * scale))
     const ctx = canvas.getContext('2d')
     if (!ctx) throw new Error('canvas unavailable')
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
     const dataUrl = canvas.toDataURL('image/png')
-    return { mime: 'image/png', dataBase64: dataUrl.slice(dataUrl.indexOf(',') + 1) }
+    return { attachment: { mime: 'image/png', dataBase64: dataUrl.slice(dataUrl.indexOf(',') + 1) }, width, height }
   } finally {
     URL.revokeObjectURL(url)
   }
@@ -236,18 +248,28 @@ export default function App() {
   // only supporting evidence). Browser-decodable formats go first; each
   // image is decoded on the canvas path, and anything that defeats the
   // canvas (TIFF, HEIC, …) is rescued by the main process's nativeImage
-  // conversion. If image candidates were present but NONE could be
-  // attached, that is reported — never silently dropped.
+  // conversion.
+  //
+  // One copied picture arrives as several candidates (the same file via
+  // both DataTransfer lists; a macOS screenshot as PNG + TIFF twins with
+  // different bytes), so the batch is deduped before anything attaches:
+  // byte-identical repeats drop by content hash, and — paste only —
+  // later candidates whose source dimensions match an attached one drop
+  // as format twins (see dedupeDecisions in @shared/imaging). Dropped
+  // duplicates are NOT failures: if image candidates were present but
+  // none could be attached, that is reported — never silently dropped.
   const addImages = async (files: File[], source: 'paste' | 'drop') => {
     if (!files.length) return
     interface Cand {
       file: File
       bytes: Uint8Array
       label: string
+      hash: string
     }
     const seenLabels: string[] = []
     const decodable: Cand[] = []
     const rest: Cand[] = []
+    const seenHashes = new Set<string>()
     for (const f of files) {
       let bytes: Uint8Array
       try {
@@ -259,7 +281,12 @@ export default function App() {
       if (!sniffed && !f.type.startsWith('image/') && !IMAGE_EXT_RE.test(f.name)) continue // not an image candidate
       const label = sniffed ?? (f.type || 'unknown')
       seenLabels.push(label)
-      const cand: Cand = { file: f, bytes, label }
+      // Content-hash gate: byte-identical repeats within the batch are
+      // the same picture offered twice — collect each byte stream once.
+      const hash = hashBytes(bytes)
+      if (seenHashes.has(hash)) continue
+      seenHashes.add(hash)
+      const cand: Cand = { file: f, bytes, label, hash }
       if (BROWSER_DECODABLE_MIMES.includes(sniffed ?? f.type)) decodable.push(cand)
       else rest.push(cand)
     }
@@ -267,21 +294,36 @@ export default function App() {
     const ordered = [...decodable, ...rest]
     const room = MAX_IMAGES - pending.length
     if (room <= 0) return
-    const out: ImageAttachment[] = []
-    for (const c of ordered.slice(0, room)) {
+    // Decode one candidate: canvas first, nativeImage rescue second.
+    // Returns the attachment plus SOURCE dimensions (pre-downscale).
+    const decode = async (c: Cand): Promise<DecodedImage | null> => {
       try {
-        out.push(await fileToAttachment(c.file))
-        continue
+        return await fileToAttachment(c.file)
       } catch {
         // Canvas couldn't decode it — let the OS codecs try.
       }
       try {
         const r = await api.imagesNormalize(c.bytes)
-        if (r.ok && r.attachment) out.push(r.attachment)
+        if (r.ok && r.attachment)
+          return { attachment: r.attachment, width: r.width ?? 0, height: r.height ?? 0 }
       } catch {
         // IPC failure counts as a failed candidate; reported below.
       }
+      return null
     }
+    const decoded: (DecodedImage & { hash: string })[] = []
+    for (const c of ordered) {
+      // Decisions over a prefix never change as candidates arrive, so
+      // once this batch already holds `room` surviving images, stop.
+      if (dedupeDecisions(decoded, source).filter((m) => m === 'keep').length >= room) break
+      const d = await decode(c)
+      if (d) decoded.push({ ...d, hash: c.hash })
+    }
+    const marks = dedupeDecisions(decoded, source)
+    const out = decoded
+      .filter((_, i) => marks[i] === 'keep')
+      .slice(0, room)
+      .map((d) => d.attachment)
     if (out.length) {
       setPending((p) => [...p, ...out].slice(0, MAX_IMAGES))
       setImgError('')

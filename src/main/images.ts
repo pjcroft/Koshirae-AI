@@ -27,7 +27,9 @@ export function normalizeImage(bytes: Uint8Array): NormalizeImageResult {
     const png = out.toPNG()
     if (!isPngBytes(png)) return { ok: false, error: 'The converted image failed validation.' }
     const attachment: ImageAttachment = { mime: 'image/png', dataBase64: png.toString('base64') }
-    return { ok: true, attachment }
+    // Report the SOURCE size (pre-downscale): the renderer dedupes
+    // clipboard format twins by their original pixel dimensions.
+    return { ok: true, attachment, width, height }
   } catch (e: any) {
     return { ok: false, error: `Image conversion failed: ${e?.message ?? e}` }
   }

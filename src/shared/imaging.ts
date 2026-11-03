@@ -61,3 +61,56 @@ export function checkImageBytes(bytes: Uint8Array): string | null {
 export function isPngBytes(bytes: Uint8Array): boolean {
   return hasSig(bytes, PNG_SIG)
 }
+
+// Batch-local content hash (cyrb53, two seeds). Not cryptographic — it
+// only has to tell "the same bytes appeared earlier in this paste/drop
+// batch" apart from everything else in a batch of a handful of files.
+export function hashBytes(bytes: Uint8Array): string {
+  const cyrb = (seed: number): string => {
+    let h1 = 0xdeadbeef ^ seed
+    let h2 = 0x41c6ce57 ^ seed
+    for (let i = 0; i < bytes.length; i++) {
+      const ch = bytes[i]
+      h1 = Math.imul(h1 ^ ch, 2654435761)
+      h2 = Math.imul(h2 ^ ch, 1597334677)
+    }
+    h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909)
+    h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909)
+    return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0')
+  }
+  return `${cyrb(0)}:${cyrb(1)}`
+}
+
+export interface BatchCandidate {
+  hash: string
+  width?: number // source pixels, before any downscale
+  height?: number
+}
+
+export type BatchMark = 'keep' | 'dup-hash' | 'dup-dims'
+
+// Decide, per candidate and in order, whether it survives one paste/drop
+// batch. First occurrence wins; only kept candidates claim their hash
+// and dimensions, and a decision over a prefix never changes as more
+// candidates arrive. A candidate drops when:
+// - 'dup-hash': its exact bytes already appeared (both paste and drop —
+//   the same file offered as both a DataTransfer item and a
+//   DataTransfer.files entry, or two identical representations), or
+// - 'dup-dims' (PASTE ONLY): an already-kept candidate has the same
+//   source pixel dimensions. A clipboard offers ONE copied image in
+//   several encodings (the macOS screenshot's PNG + TIFF twins differ
+//   in bytes, size and metadata, so byte-level dedupe cannot see they
+//   are one picture — equal dimensions can). Drops skip this gate: two
+//   different files may legitimately share dimensions.
+export function dedupeDecisions(cands: BatchCandidate[], source: 'paste' | 'drop'): BatchMark[] {
+  const seenHashes = new Set<string>()
+  const seenDims = new Set<string>()
+  return cands.map((c) => {
+    if (seenHashes.has(c.hash)) return 'dup-hash'
+    const dims = c.width && c.height ? `${c.width}x${c.height}` : null
+    if (source === 'paste' && dims && seenDims.has(dims)) return 'dup-dims'
+    seenHashes.add(c.hash)
+    if (dims) seenDims.add(dims)
+    return 'keep'
+  })
+}
