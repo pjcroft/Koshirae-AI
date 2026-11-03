@@ -13,6 +13,7 @@ import { getMcpStatus, startMcp, stopMcp } from './mcp'
 import { logout as subsLogout, startLogin, subStatus, submitCode } from './subs'
 import { getUsage } from './usage'
 import { downloadModel as voiceDownloadModel, transcribeAndClean, voiceStatus } from './voice'
+import { normalizeImage } from './images'
 
 // The main process is an ES module (see electron.vite.config.ts) so that
 // ESM-only dependencies such as @mariozechner/pi-ai load natively.
@@ -161,6 +162,15 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('usage:get', () => getUsage(settings))
   ipcMain.handle('voice:transcribe', (_e, bytes: Uint8Array) => transcribeAndClean(settings, bytes))
+  ipcMain.handle('images:normalize', (_e, bytes: Uint8Array) => {
+    // normalizeImage already returns failures instead of throwing; this
+    // wrapper is a second belt so a decode surprise can never crash IPC.
+    try {
+      return normalizeImage(bytes)
+    } catch (e: any) {
+      return { ok: false, error: `Image conversion failed: ${e?.message ?? e}` }
+    }
+  })
   ipcMain.handle('voice:status', () => voiceStatus())
   ipcMain.handle('voice:download-model', () =>
     win ? voiceDownloadModel(win) : { ok: false, error: 'No window available for progress reporting' }

@@ -167,6 +167,14 @@ export interface VoiceResult {
   code?: 'engine-missing' | 'model-missing'
 }
 
+// Result of the images:normalize rescue conversion (clipboard formats
+// Chromium cannot decode, e.g. TIFF from macOS screenshots/Snagit).
+export interface NormalizeImageResult {
+  ok: boolean
+  attachment?: ImageAttachment
+  error?: string
+}
+
 export interface Api {
   getSettings(): Promise<Settings>
   setSettings(s: Settings): Promise<McpStatus[]>
@@ -195,6 +203,7 @@ export interface Api {
   subsLogout(which: SubWhich): Promise<SubStatus>
   usageGet(): Promise<UsageReport>
   voiceTranscribe(bytes: Uint8Array): Promise<VoiceResult>
+  imagesNormalize(bytes: Uint8Array): Promise<NormalizeImageResult>
   voiceStatus(): Promise<VoiceStatus>
   voiceDownloadModel(): Promise<{ ok: boolean; error?: string }>
   onVoiceModelProgress(cb: (e: { pct: number }) => void): () => void

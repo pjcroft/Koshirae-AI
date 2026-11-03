@@ -25,6 +25,7 @@ const api: Api = {
   subsLogout: (which) => inv('subs:logout', which),
   usageGet: () => inv('usage:get'),
   voiceTranscribe: (bytes) => inv('voice:transcribe', bytes),
+  imagesNormalize: (bytes) => inv('images:normalize', bytes),
   voiceStatus: () => inv('voice:status'),
   voiceDownloadModel: () => inv('voice:download-model'),
   onVoiceModelProgress: (cb) => {

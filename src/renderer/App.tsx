@@ -15,6 +15,7 @@ import type {
   UsageReport
 } from '@shared/types'
 import SettingsModal from './SettingsModal'
+import { BROWSER_DECODABLE_MIMES, IMAGE_EXT_RE, sniffImageMime } from '@shared/imaging'
 
 const MAX_IMAGES = 4 // attachments per message
 const MAX_IMAGE_EDGE = 2048 // px on the long edge after downscaling
@@ -87,6 +88,7 @@ export default function App() {
   // Images pasted or dropped into the composer, waiting to ride along with
   // the next send.
   const [pending, setPending] = useState<ImageAttachment[]>([])
+  const [imgError, setImgError] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const mediaRef = useRef<MediaRecorder | null>(null)
@@ -201,48 +203,118 @@ export default function App() {
     api.setSettings(s).then(setMcp)
   }
 
-  const addImages = async (files: File[]) => {
-    if (!files.length || pending.length >= MAX_IMAGES) return
-    const out: ImageAttachment[] = []
-    for (const f of files.slice(0, MAX_IMAGES - pending.length)) {
+  // Gather every file a paste/drop offers. Declared types are NOT
+  // trusted: Electron can report a screenshot PNG item with an empty
+  // type, and macOS clipboards may carry TIFF only. Every kind==='file'
+  // item plus every entry of .files is a candidate; the bytes decide
+  // what it really is (addImages sniffs magic numbers). Deduped because
+  // the same file often shows up in both lists.
+  const collectFiles = (dt: DataTransfer): File[] => {
+    const out: File[] = []
+    const seen = new Set<string>()
+    const take = (f: File | null) => {
+      if (!f) return
+      const key = `${f.name}|${f.size}|${f.lastModified}`
+      if (seen.has(key)) return
+      seen.add(key)
+      out.push(f)
+    }
+    for (const it of Array.from(dt.items)) if (it.kind === 'file') take(it.getAsFile())
+    for (const f of Array.from(dt.files)) take(f)
+    return out
+  }
+
+  // Synchronous "could this be an image?" for the preventDefault decision
+  // in onPaste (the real classification needs the bytes, which is async):
+  // a declared image type, an image file extension, or an undeclared type
+  // (clipboard images frequently declare nothing at all).
+  const maybeImage = (f: File): boolean =>
+    f.type.startsWith('image/') || IMAGE_EXT_RE.test(f.name) || (f.type === '' && !/\.[a-z0-9]{2,5}$/i.test(f.name))
+
+  // Turn candidate files into attachments. Each candidate's bytes are
+  // sniffed for a real image signature (declared type / extension are
+  // only supporting evidence). Browser-decodable formats go first; each
+  // image is decoded on the canvas path, and anything that defeats the
+  // canvas (TIFF, HEIC, …) is rescued by the main process's nativeImage
+  // conversion. If image candidates were present but NONE could be
+  // attached, that is reported — never silently dropped.
+  const addImages = async (files: File[], source: 'paste' | 'drop') => {
+    if (!files.length) return
+    interface Cand {
+      file: File
+      bytes: Uint8Array
+      label: string
+    }
+    const seenLabels: string[] = []
+    const decodable: Cand[] = []
+    const rest: Cand[] = []
+    for (const f of files) {
+      let bytes: Uint8Array
       try {
-        out.push(await fileToAttachment(f))
+        bytes = new Uint8Array(await f.arrayBuffer())
       } catch {
-        // An undecodable clipboard blob is skipped, not fatal.
+        continue
+      }
+      const sniffed = sniffImageMime(bytes)
+      if (!sniffed && !f.type.startsWith('image/') && !IMAGE_EXT_RE.test(f.name)) continue // not an image candidate
+      const label = sniffed ?? (f.type || 'unknown')
+      seenLabels.push(label)
+      const cand: Cand = { file: f, bytes, label }
+      if (BROWSER_DECODABLE_MIMES.includes(sniffed ?? f.type)) decodable.push(cand)
+      else rest.push(cand)
+    }
+    if (!seenLabels.length) return // nothing image-like: behave exactly as before
+    const ordered = [...decodable, ...rest]
+    const room = MAX_IMAGES - pending.length
+    if (room <= 0) return
+    const out: ImageAttachment[] = []
+    for (const c of ordered.slice(0, room)) {
+      try {
+        out.push(await fileToAttachment(c.file))
+        continue
+      } catch {
+        // Canvas couldn't decode it — let the OS codecs try.
+      }
+      try {
+        const r = await api.imagesNormalize(c.bytes)
+        if (r.ok && r.attachment) out.push(r.attachment)
+      } catch {
+        // IPC failure counts as a failed candidate; reported below.
       }
     }
-    if (out.length) setPending((p) => [...p, ...out].slice(0, MAX_IMAGES))
+    if (out.length) {
+      setPending((p) => [...p, ...out].slice(0, MAX_IMAGES))
+      setImgError('')
+    } else {
+      const saw = [...new Set(seenLabels)].join(', ')
+      setImgError(
+        `Couldn't read the ${source === 'paste' ? 'pasted' : 'dropped'} image (saw: ${saw}) — try copying it as PNG, or drag the file onto the box.`
+      )
+    }
   }
 
   // Paste: pull image parts out of the clipboard into the attachment strip.
   // When the clipboard carries text AND an image, the text paste proceeds
   // normally (no preventDefault) and the image is taken alongside; with an
   // image alone, the default is swallowed so no file name/path text leaks
-  // into the composer.
+  // into the composer. A paste with no image candidates is left entirely
+  // to the default text handling.
   const onPaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
     const cd = e.clipboardData
     if (!cd) return
     let hasText = false
-    const files: File[] = []
-    for (const it of Array.from(cd.items)) {
-      if (it.type === 'text/plain') hasText = true
-      else if (it.kind === 'file' && it.type.startsWith('image/')) {
-        const f = it.getAsFile()
-        if (f) files.push(f)
-      }
-    }
-    if (!files.length)
-      for (const f of Array.from(cd.files)) if (f.type.startsWith('image/')) files.push(f)
+    for (const it of Array.from(cd.items)) if (it.type === 'text/plain') hasText = true
+    const files = collectFiles(cd).filter(maybeImage)
     if (!files.length) return
     if (!hasText) e.preventDefault()
-    void addImages(files)
+    void addImages(files, 'paste')
   }
 
   const onDrop = (e: ReactDragEvent) => {
     e.preventDefault()
     setDragOver(false)
-    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'))
-    if (files.length) void addImages(files)
+    const files = collectFiles(e.dataTransfer)
+    if (files.length) void addImages(files, 'drop')
   }
 
   const send = async () => {
@@ -671,6 +743,7 @@ export default function App() {
             )}
           </div>
           {voiceError && <div className="voice-err">{voiceError}</div>}
+          {imgError && <div className="voice-err">{imgError}</div>}
         </footer>
       </main>
 
