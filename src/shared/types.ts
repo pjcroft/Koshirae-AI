@@ -82,12 +82,20 @@ export interface ToolCall {
   function: { name: string; arguments: string }
 }
 
+// An image attached to a user message (pasted or drag-and-dropped in the
+// composer). Persisted inline in the conversation JSON as base64.
+export interface ImageAttachment {
+  mime: string
+  dataBase64: string
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string | null
   tool_calls?: ToolCall[]
   tool_call_id?: string
   name?: string
+  attachments?: ImageAttachment[] // user messages only
 }
 
 export interface Conversation {
@@ -170,7 +178,13 @@ export interface Api {
   projectsAdd(name: string, path: string): Promise<Project>
   projectsRemove(id: string): Promise<void>
   listModels(providerId: string): Promise<string[]>
-  send(args: { convId: string; text: string; providerId: string; model: string }): Promise<void>
+  send(args: {
+    convId: string
+    text: string
+    providerId: string
+    model: string
+    attachments?: ImageAttachment[]
+  }): Promise<void>
   stop(convId: string): Promise<void>
   compactChat(convId: string): Promise<{ ok: boolean; compacted: boolean; summaryUpTo: number }>
   respond(id: string, allow: boolean): Promise<void>

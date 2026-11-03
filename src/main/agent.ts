@@ -6,6 +6,7 @@ import { join } from 'path'
 import type { BrowserWindow } from 'electron'
 import type { ChatEvent, ChatMessage, Conversation, Provider, Settings, ToolCall } from '@shared/types'
 import { builtinTools, ToolDef } from './tools'
+import { mapOpenAIMessages, piUserContent } from './imagemap'
 import { mcpTools } from './mcp'
 import { saveConv } from './store'
 import { getModels, stream } from '@mariozechner/pi-ai'
@@ -71,7 +72,9 @@ async function streamCompletion(
   onDelta: (t: string) => void,
   maxTokens?: number
 ): Promise<ChatMessage> {
-  const body: any = { model, messages, stream: true }
+  // Attachments ride inline on ChatMessage; the wire format wants content
+  // parts, so map here (attachment-free messages pass through unchanged).
+  const body: any = { model, messages: mapOpenAIMessages(messages), stream: true }
   if (maxTokens) body.max_tokens = maxTokens
   if (tools.length)
     body.tools = tools.map((t) => ({
@@ -161,7 +164,7 @@ function toPiMessages(messages: ChatMessage[], model: PiModel<any>): PiMessage[]
   const out: PiMessage[] = []
   for (const m of messages) {
     if (m.role === 'user') {
-      out.push({ role: 'user', content: [{ type: 'text', text: typeof m.content === 'string' ? m.content : '' }], timestamp: now })
+      out.push({ role: 'user', content: piUserContent(m), timestamp: now })
     } else if (m.role === 'assistant') {
       const content: PiAssistantMessage['content'] = []
       if (m.content) content.push({ type: 'text', text: m.content })
@@ -335,6 +338,9 @@ function serializeSegment(conv: Conversation, cut: number): string {
   for (let i = conv.summaryUpTo ?? 0; i < cut; i++) {
     const m = conv.messages[i]
     let body = typeof m.content === 'string' ? m.content : ''
+    // The summarizer is text-only: an attached image stands in as "[image]"
+    // (its base64 never enters the summary input).
+    if (m.attachments?.length) body += (body ? '\n' : '') + m.attachments.map(() => '[image]').join(' ')
     if (m.role === 'tool') body = clipForSummary(body, 4_000)
     if (m.tool_calls?.length) {
       const calls = m.tool_calls

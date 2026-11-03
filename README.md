@@ -17,6 +17,7 @@ Koshirae (拵え) are the mountings of a Japanese sword: the scabbard, hilt, gua
 *Settings — providers, subscription sign-ins (Claude Pro/Max and ChatGPT Plus/Pro), per-source usage, and the chat model picker.*
 
 - **Providers**: OpenRouter, OpenAI, Anthropic (OpenAI-compat), Ollama, LM Studio, or any OpenAI-compatible URL. Streaming chat, model picker, saved conversations.
+- **Image attachments** 🖼: paste or drag-and-drop images (screenshots included) straight into the composer and send them to vision-capable models — up to 4 per message, downscaled in-app before sending.
 - **Voice dictation** 🎤: click the mic in the composer and talk — transcription runs **entirely on-device** with Whisper (large-v3-turbo; the engine comes from `brew install whisper-cpp` and the ~1.6 GB model downloads once from Settings → Voice dictation). An optional cleanup pass (a free OpenRouter model by default; point it at the Ollama / LM Studio provider to keep it fully local) strips fillers and fixes punctuation, and the text lands in the composer for review — never auto-sent, and the audio itself never leaves the machine.
 - **Agent tools** (with per-category approval: read / write / exec / mcp): local files, shell, SSH (`ssh_*`, uses your keys/agent/`~/.ssh/config`, works with Tailscale hostnames), SMB (`smbclient`, or use mounted shares), Tailscale status, HTTP fetch.
 - **MCP**: stdio or streamable-HTTP servers, configured in Settings as JSON.

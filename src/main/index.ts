@@ -5,8 +5,9 @@ import { writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
-import type { Conversation, Project, Settings, SubWhich } from '@shared/types'
+import type { Conversation, ImageAttachment, Project, Settings, SubWhich } from '@shared/types'
 import * as store from './store'
+import { attachContextMenu, installAppMenu } from './menu'
 import { compactConversation, deleted, isRunning, listModels, respondApproval, runAgent, stopAll, stopConv } from './agent'
 import { getMcpStatus, startMcp, stopMcp } from './mcp'
 import { logout as subsLogout, startLogin, subStatus, submitCode } from './subs'
@@ -54,6 +55,7 @@ function createWindow() {
   }
   win.webContents.on('will-navigate', guard)
   win.webContents.on('will-redirect', guard)
+  attachContextMenu(win)
   if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
   else win.loadFile(join(mainDir, '../renderer/index.html'))
 }
@@ -62,6 +64,7 @@ const provider = (id: string) => settings.providers.find((p) => p.id === id) ?? 
 
 app.whenReady().then(async () => {
   app.setName('Koshirae AI')
+  installAppMenu()
   await fixPath()
   settings = await store.loadSettings()
   startMcp(settings.mcpServers)
@@ -110,24 +113,32 @@ app.whenReady().then(async () => {
     await store.deleteConv(id)
   })
   ipcMain.handle('models:list', (_e, id: string) => listModels(provider(id), settings))
-  ipcMain.handle('chat:send', async (_e, a: { convId: string; text: string; providerId: string; model: string }) => {
-    const conv = await store.loadConv(a.convId)
-    if (!conv || !win) {
-      win?.webContents.send('chat:event', { convId: a.convId, type: 'error', error: 'Conversation not found' })
-      return
+  ipcMain.handle(
+    'chat:send',
+    async (_e, a: { convId: string; text: string; providerId: string; model: string; attachments?: ImageAttachment[] }) => {
+      const conv = await store.loadConv(a.convId)
+      if (!conv || !win) {
+        win?.webContents.send('chat:event', { convId: a.convId, type: 'error', error: 'Conversation not found' })
+        return
+      }
+      if (isRunning(a.convId)) return
+      if (!provider(a.providerId)) {
+        win.webContents.send('chat:event', { convId: a.convId, type: 'error', error: 'No provider configured' })
+        return
+      }
+      // Trust the shape, not the sender: keep only well-formed image
+      // attachments, at most 4, mirroring the composer's cap.
+      const attachments = (a.attachments ?? [])
+        .filter((x) => x && typeof x.mime === 'string' && x.mime.startsWith('image/') && typeof x.dataBase64 === 'string' && x.dataBase64)
+        .slice(0, 4)
+      if (conv.messages.length === 0) conv.title = a.text.slice(0, 48) || (attachments.length ? 'Image message' : conv.title)
+      conv.providerId = a.providerId
+      conv.model = a.model
+      conv.messages.push({ role: 'user', content: a.text, ...(attachments.length ? { attachments } : {}) })
+      await store.saveConv(conv)
+      await runAgent(win, conv, settings, provider(a.providerId), a.model)
     }
-    if (isRunning(a.convId)) return
-    if (!provider(a.providerId)) {
-      win.webContents.send('chat:event', { convId: a.convId, type: 'error', error: 'No provider configured' })
-      return
-    }
-    if (conv.messages.length === 0) conv.title = a.text.slice(0, 48)
-    conv.providerId = a.providerId
-    conv.model = a.model
-    conv.messages.push({ role: 'user', content: a.text })
-    await store.saveConv(conv)
-    await runAgent(win, conv, settings, provider(a.providerId), a.model)
-  })
+  )
   ipcMain.handle('chat:stop', (_e, id: string) => stopConv(id))
   ipcMain.handle('chat:compact', async (_e, convId: string) => {
     const conv = await store.loadConv(convId)

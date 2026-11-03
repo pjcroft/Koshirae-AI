@@ -1,10 +1,50 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
+import type { ClipboardEvent as ReactClipboardEvent, DragEvent as ReactDragEvent } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import logo from './logo.png'
 import { blobToWav16k } from './voice'
-import type { ChatEvent, ChatMessage, Conversation, ConversationMeta, McpStatus, Settings, UsageReport } from '@shared/types'
+import type {
+  ChatEvent,
+  ChatMessage,
+  Conversation,
+  ConversationMeta,
+  ImageAttachment,
+  McpStatus,
+  Settings,
+  UsageReport
+} from '@shared/types'
 import SettingsModal from './SettingsModal'
+
+const MAX_IMAGES = 4 // attachments per message
+const MAX_IMAGE_EDGE = 2048 // px on the long edge after downscaling
+
+// Pasted/dropped image → attachment: decode, downscale to at most
+// MAX_IMAGE_EDGE on the long edge via canvas, and re-encode as PNG. The
+// downscale keeps conversation files (base64 inline) and provider payloads
+// sane for full-screen screenshots.
+async function fileToAttachment(file: Blob): Promise<ImageAttachment> {
+  const url = URL.createObjectURL(file)
+  try {
+    const img = await new Promise<HTMLImageElement>((res, rej) => {
+      const i = new Image()
+      i.onload = () => res(i)
+      i.onerror = () => rej(new Error('unreadable image'))
+      i.src = url
+    })
+    const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(img.naturalWidth, img.naturalHeight))
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * scale))
+    canvas.height = Math.max(1, Math.round(img.naturalHeight * scale))
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('canvas unavailable')
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+    const dataUrl = canvas.toDataURL('image/png')
+    return { mime: 'image/png', dataBase64: dataUrl.slice(dataUrl.indexOf(',') + 1) }
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
 
 interface Approval {
   id: string
@@ -44,6 +84,10 @@ export default function App() {
   const [voiceState, setVoiceState] = useState<'idle' | 'recording' | 'transcribing'>('idle')
   const [voiceSecs, setVoiceSecs] = useState(0)
   const [voiceError, setVoiceError] = useState('')
+  // Images pasted or dropped into the composer, waiting to ride along with
+  // the next send.
+  const [pending, setPending] = useState<ImageAttachment[]>([])
+  const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const mediaRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -157,21 +201,67 @@ export default function App() {
     api.setSettings(s).then(setMcp)
   }
 
+  const addImages = async (files: File[]) => {
+    if (!files.length || pending.length >= MAX_IMAGES) return
+    const out: ImageAttachment[] = []
+    for (const f of files.slice(0, MAX_IMAGES - pending.length)) {
+      try {
+        out.push(await fileToAttachment(f))
+      } catch {
+        // An undecodable clipboard blob is skipped, not fatal.
+      }
+    }
+    if (out.length) setPending((p) => [...p, ...out].slice(0, MAX_IMAGES))
+  }
+
+  // Paste: pull image parts out of the clipboard into the attachment strip.
+  // When the clipboard carries text AND an image, the text paste proceeds
+  // normally (no preventDefault) and the image is taken alongside; with an
+  // image alone, the default is swallowed so no file name/path text leaks
+  // into the composer.
+  const onPaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
+    const cd = e.clipboardData
+    if (!cd) return
+    let hasText = false
+    const files: File[] = []
+    for (const it of Array.from(cd.items)) {
+      if (it.type === 'text/plain') hasText = true
+      else if (it.kind === 'file' && it.type.startsWith('image/')) {
+        const f = it.getAsFile()
+        if (f) files.push(f)
+      }
+    }
+    if (!files.length)
+      for (const f of Array.from(cd.files)) if (f.type.startsWith('image/')) files.push(f)
+    if (!files.length) return
+    if (!hasText) e.preventDefault()
+    void addImages(files)
+  }
+
+  const onDrop = (e: ReactDragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith('image/'))
+    if (files.length) void addImages(files)
+  }
+
   const send = async () => {
     const text = input.trim()
-    if (!text || busy) return
+    if ((!text && !pending.length) || busy) return
     let c = conv
     if (!c) c = await api.newConv(selProject ?? undefined)
+    const attachments = pending.length ? pending : undefined
     const withUser: Conversation = {
       ...c,
-      title: c.messages.length ? c.title : text.slice(0, 48),
-      messages: [...c.messages, { role: 'user', content: text }]
+      title: c.messages.length ? c.title : text.slice(0, 48) || 'Image message',
+      messages: [...c.messages, { role: 'user', content: text, ...(attachments ? { attachments } : {}) }]
     }
     setConv(withUser)
     setInput('')
+    setPending([])
     setError('')
     setBusyFor(c.id, true)
-    api.send({ convId: c.id, text, providerId: settings.activeProviderId, model: settings.model })
+    api.send({ convId: c.id, text, providerId: settings.activeProviderId, model: settings.model, attachments })
   }
 
   const answer = (a: Approval, allow: boolean) => {
@@ -471,7 +561,16 @@ export default function App() {
                 <div className="compact-divider">Earlier context compacted into a summary — full history still saved</div>
               )}
               {m.role === 'user' ? (
-                <div className="msg user">{m.content}</div>
+                <div className="msg user">
+                  {m.content}
+                  {!!m.attachments?.length && (
+                    <div className="msg-imgs">
+                      {m.attachments.map((a, j) => (
+                        <img key={j} src={`data:${a.mime};base64,${a.dataBase64}`} alt="attached image" />
+                      ))}
+                    </div>
+                  )}
+                </div>
               ) : m.role === 'assistant' ? (
                 <div className="msg bot">
                   {m.content && <Markdown remarkPlugins={[remarkGfm]}>{m.content}</Markdown>}
@@ -508,13 +607,38 @@ export default function App() {
           <div ref={endRef} />
         </div>
 
-        <footer className="composer-area">
+        <footer
+          className={'composer-area' + (dragOver ? ' dragover' : '')}
+          onDragOver={(e) => {
+            e.preventDefault()
+            setDragOver(true)
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
+        >
+          {pending.length > 0 && (
+            <div className="attach-strip">
+              {pending.map((a, i) => (
+                <div className="attach-thumb" key={i}>
+                  <img src={`data:${a.mime};base64,${a.dataBase64}`} alt="pending attachment" />
+                  <button
+                    className="x"
+                    title="Remove image"
+                    onClick={() => setPending((p) => p.filter((_, j) => j !== i))}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="composer">
             <textarea
               ref={inputRef}
               value={input}
               placeholder="Message Koshirae AI…  (Enter to send, Shift+Enter for newline)"
               onChange={(e) => setInput(e.target.value)}
+              onPaste={onPaste}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault()
