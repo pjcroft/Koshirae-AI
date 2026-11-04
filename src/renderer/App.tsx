@@ -9,6 +9,7 @@ import type {
   ChatMessage,
   Conversation,
   ConversationMeta,
+  DocAttachment,
   ImageAttachment,
   McpStatus,
   Settings,
@@ -16,9 +17,46 @@ import type {
 } from '@shared/types'
 import SettingsModal from './SettingsModal'
 import { BROWSER_DECODABLE_MIMES, IMAGE_EXT_RE, dedupeDecisions, hashBytes, sniffImageMime } from '@shared/imaging'
+import { capDocText, classifyDoc, formatBytes, type DocKind } from '@shared/files'
 
 const MAX_IMAGES = 4 // attachments per message
 const MAX_IMAGE_EDGE = 2048 // px on the long edge after downscaling
+const MAX_DOCS = 4 // document attachments per message (images + docs ≤ 8 by construction)
+const MAX_NATIVE_PDF_BYTES = 10 * 1024 * 1024 // PDFs up to this size also keep their bytes for native file parts
+
+// Chunked base64 for file bytes — a naive spread of a multi-MB buffer
+// into String.fromCharCode overflows the argument stack.
+function bytesToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf)
+  let s = ''
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(s)
+}
+
+const DOC_EMOJI: Record<DocKind, string> = { pdf: '📄', docx: '📝', xlsx: '📊', pptx: '📽', text: '📄' }
+
+// One attached document, shown in the composer's strip (with a remove
+// button) and in message history (without).
+function DocChip({ d, onRemove }: { d: DocAttachment; onRemove?: () => void }) {
+  return (
+    <div className="attach-doc">
+      <span className="doc-emoji">{DOC_EMOJI[d.kind]}</span>
+      <span className="doc-name" title={d.name}>
+        {d.name}
+      </span>
+      <span className="doc-meta">
+        {formatBytes(d.size)}
+        {d.pages ? ` • ${d.pages} pages` : ''}
+      </span>
+      {onRemove && (
+        <button className="x" title="Remove file" onClick={onRemove}>
+          ×
+        </button>
+      )}
+    </div>
+  )
+}
 
 // A decoded image: the attachment to store, plus its SOURCE pixel
 // dimensions (before downscale). Dimensions are batch-transient — the
@@ -100,6 +138,10 @@ export default function App() {
   // Images pasted or dropped into the composer, waiting to ride along with
   // the next send.
   const [pending, setPending] = useState<ImageAttachment[]>([])
+  // Documents (PDF / Word / Excel / PowerPoint / text) dropped or pasted
+  // alongside the images; `reading` counts extractions in flight.
+  const [pendingDocs, setPendingDocs] = useState<DocAttachment[]>([])
+  const [reading, setReading] = useState(0)
   const [imgError, setImgError] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -176,6 +218,22 @@ export default function App() {
     },
     []
   )
+
+  // A file dropped anywhere outside the chat pane must never navigate
+  // the window (Electron's default is to open the dropped file). Only
+  // file-carrying drags are intercepted, so ordinary text drags keep
+  // their native behavior.
+  useEffect(() => {
+    const guard = (e: DragEvent) => {
+      if (Array.from(e.dataTransfer?.types ?? []).includes('Files')) e.preventDefault()
+    }
+    window.addEventListener('dragover', guard)
+    window.addEventListener('drop', guard)
+    return () => {
+      window.removeEventListener('dragover', guard)
+      window.removeEventListener('drop', guard)
+    }
+  }, [])
 
   if (!settings) return null
 
@@ -335,47 +393,149 @@ export default function App() {
     }
   }
 
-  // Paste: pull image parts out of the clipboard into the attachment strip.
-  // When the clipboard carries text AND an image, the text paste proceeds
-  // normally (no preventDefault) and the image is taken alongside; with an
-  // image alone, the default is swallowed so no file name/path text leaks
-  // into the composer. A paste with no image candidates is left entirely
-  // to the default text handling.
+  // Turn document candidates into attachments. Text files are decoded
+  // and capped right here; everything else goes to the main process
+  // (files:extract) which pulls the text out of the PDF/Office package.
+  // PDFs up to 10 MB also keep their bytes so OpenRouter/OpenAI can read
+  // the original file natively. Failures are never silent: each one is
+  // appended to `problems` and lands on the error line under the
+  // composer, naming the file.
+  const addDocs = async (items: { file: File; kind: DocKind }[], problems: string[]) => {
+    let slots = MAX_DOCS - pendingDocs.length
+    const accepted: DocAttachment[] = []
+    for (const { file, kind } of items) {
+      const label = file.name || 'a file'
+      if (slots <= 0) {
+        problems.push(`${label} — skipped: at most ${MAX_DOCS} documents per message`)
+        continue
+      }
+      setReading((r) => r + 1)
+      try {
+        const buf = await file.arrayBuffer()
+        if (kind === 'text') {
+          const { text, truncated } = capDocText(new TextDecoder().decode(buf))
+          if (!text.trim()) {
+            problems.push(`${label} — no readable text`)
+            continue
+          }
+          accepted.push({
+            name: label,
+            mime: file.type || 'text/plain',
+            kind,
+            size: file.size,
+            text,
+            ...(truncated ? { truncated } : {})
+          })
+        } else {
+          const dataBase64 = bytesToBase64(buf)
+          const r = await api.extractFile(label, kind, dataBase64)
+          if (!r.ok || r.text === undefined) {
+            problems.push(`${label} — ${r.error ?? 'could not be read'}`)
+            continue
+          }
+          accepted.push({
+            name: label,
+            mime: file.type || 'application/octet-stream',
+            kind,
+            size: file.size,
+            text: r.text,
+            ...(r.pages ? { pages: r.pages } : {}),
+            ...(r.truncated ? { truncated: true } : {}),
+            ...(kind === 'pdf' && file.size <= MAX_NATIVE_PDF_BYTES ? { dataBase64 } : {})
+          })
+        }
+        slots--
+      } catch (e: any) {
+        problems.push(`${label} — ${e?.message ?? 'could not be read'}`)
+      } finally {
+        setReading((r) => r - 1)
+      }
+    }
+    if (accepted.length) setPendingDocs((d) => [...d, ...accepted].slice(0, MAX_DOCS))
+  }
+
+  // The one intake for pasted/dropped files. The first bytes decide the
+  // route: anything sniffing as an image takes the existing image flow
+  // (unchanged, batch semantics included); anything classifying as a
+  // supported document takes the doc flow; a declared image the sniffer
+  // doesn't know still gets its chance on the image path; the rest are
+  // named on the error line instead of vanishing silently.
+  const addFiles = async (files: File[], source: 'paste' | 'drop') => {
+    if (!files.length) return
+    const imageFiles: File[] = []
+    const docItems: { file: File; kind: DocKind }[] = []
+    const problems: string[] = []
+    for (const f of files) {
+      let head: Uint8Array | null = null
+      try {
+        head = new Uint8Array(await f.slice(0, 16).arrayBuffer())
+      } catch {
+        head = null
+      }
+      if (head && sniffImageMime(head)) {
+        imageFiles.push(f)
+        continue
+      }
+      const kind = classifyDoc(f.name, f.type)
+      if (kind) docItems.push({ file: f, kind })
+      else if (f.type.startsWith('image/') || IMAGE_EXT_RE.test(f.name)) imageFiles.push(f)
+      else problems.push(`${f.name || 'a file'} — unsupported file type`)
+    }
+    if (imageFiles.length) await addImages(imageFiles, source)
+    if (docItems.length) await addDocs(docItems, problems)
+    if (problems.length) setImgError((prev) => [prev, ...problems].filter(Boolean).join('\n'))
+  }
+
+  // Paste: pull image/document parts out of the clipboard into the
+  // attachment strip. When the clipboard carries text AND an attachment,
+  // the text paste proceeds normally (no preventDefault) and the
+  // attachment is taken alongside; with an attachment alone, the default
+  // is swallowed so no file name/path text leaks into the composer. A
+  // paste with no attachment candidates is left entirely to the default
+  // text handling.
   const onPaste = (e: ReactClipboardEvent<HTMLTextAreaElement>) => {
     const cd = e.clipboardData
     if (!cd) return
     let hasText = false
     for (const it of Array.from(cd.items)) if (it.type === 'text/plain') hasText = true
-    const files = collectFiles(cd).filter(maybeImage)
+    const files = collectFiles(cd).filter((f) => maybeImage(f) || classifyDoc(f.name, f.type))
     if (!files.length) return
     if (!hasText) e.preventDefault()
-    void addImages(files, 'paste')
+    void addFiles(files, 'paste')
   }
 
   const onDrop = (e: ReactDragEvent) => {
-    e.preventDefault()
-    setDragOver(false)
     const files = collectFiles(e.dataTransfer)
-    if (files.length) void addImages(files, 'drop')
+    setDragOver(false)
+    if (!files.length) return // not a file drop (e.g. dragged text): keep the native default
+    e.preventDefault()
+    void addFiles(files, 'drop')
   }
 
   const send = async () => {
     const text = input.trim()
-    if ((!text && !pending.length) || busy) return
+    if ((!text && !pending.length && !pendingDocs.length) || busy || reading > 0) return
     let c = conv
     if (!c) c = await api.newConv(selProject ?? undefined)
     const attachments = pending.length ? pending : undefined
+    const files = pendingDocs.length ? pendingDocs : undefined
     const withUser: Conversation = {
       ...c,
-      title: c.messages.length ? c.title : text.slice(0, 48) || 'Image message',
-      messages: [...c.messages, { role: 'user', content: text, ...(attachments ? { attachments } : {}) }]
+      title: c.messages.length
+        ? c.title
+        : text.slice(0, 48) || (files ? `File: ${files[0].name}` : 'Image message'),
+      messages: [
+        ...c.messages,
+        { role: 'user', content: text, ...(attachments ? { attachments } : {}), ...(files ? { files } : {}) }
+      ]
     }
     setConv(withUser)
     setInput('')
     setPending([])
+    setPendingDocs([])
     setError('')
     setBusyFor(c.id, true)
-    api.send({ convId: c.id, text, providerId: settings.activeProviderId, model: settings.model, attachments })
+    api.send({ convId: c.id, text, providerId: settings.activeProviderId, model: settings.model, attachments, files })
   }
 
   const answer = (a: Approval, allow: boolean) => {
@@ -484,6 +644,7 @@ export default function App() {
         (n, m) =>
           n +
           estTok(typeof m.content === 'string' ? m.content : '') +
+          (m.files ?? []).reduce((k, d) => k + estTok(d.text), 0) +
           (m.tool_calls ?? []).reduce((k, tc) => k + estTok(tc.function.arguments), 0),
         0
       )
@@ -596,7 +757,22 @@ export default function App() {
         </button>
       </aside>
 
-      <main className="main">
+      <main
+        className={'main' + (dragOver ? ' dragover' : '')}
+        onDragOver={(e) => {
+          if (Array.from(e.dataTransfer.types).includes('Files')) {
+            e.preventDefault()
+            setDragOver(true)
+          }
+        }}
+        onDragLeave={(e) => {
+          // dragleave fires when entering child elements too — only a
+          // leave whose destination is outside the pane ends the drag.
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false)
+        }}
+        onDrop={onDrop}
+      >
+        {dragOver && <div className="drop-overlay">Drop files to attach</div>}
         <header className="top">
           <select value={settings.activeProviderId} onChange={(e) => patch({ activeProviderId: e.target.value })}>
             {settings.providers.map((p) => (
@@ -684,6 +860,13 @@ export default function App() {
                       ))}
                     </div>
                   )}
+                  {!!m.files?.length && (
+                    <div className="msg-files">
+                      {m.files.map((d, j) => (
+                        <DocChip key={j} d={d} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               ) : m.role === 'assistant' ? (
                 <div className="msg bot">
@@ -721,16 +904,8 @@ export default function App() {
           <div ref={endRef} />
         </div>
 
-        <footer
-          className={'composer-area' + (dragOver ? ' dragover' : '')}
-          onDragOver={(e) => {
-            e.preventDefault()
-            setDragOver(true)
-          }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={onDrop}
-        >
-          {pending.length > 0 && (
+        <footer className="composer-area">
+          {(pending.length > 0 || pendingDocs.length > 0 || reading > 0) && (
             <div className="attach-strip">
               {pending.map((a, i) => (
                 <div className="attach-thumb" key={i}>
@@ -744,6 +919,14 @@ export default function App() {
                   </button>
                 </div>
               ))}
+              {pendingDocs.map((d, i) => (
+                <DocChip
+                  key={`doc-${i}`}
+                  d={d}
+                  onRemove={() => setPendingDocs((p) => p.filter((_, j) => j !== i))}
+                />
+              ))}
+              {reading > 0 && <span className="doc-meta reading">Reading {reading} file{reading > 1 ? 's' : ''}…</span>}
             </div>
           )}
           <div className="composer">
@@ -781,7 +964,14 @@ export default function App() {
             {busy ? (
               <button className="btn" onClick={() => conv && api.stop(conv.id)}>■ Stop</button>
             ) : (
-              <button className="btn primary" onClick={send}>Send</button>
+              <button
+                className="btn primary"
+                onClick={send}
+                disabled={reading > 0}
+                title={reading > 0 ? 'Reading attached files…' : undefined}
+              >
+                Send
+              </button>
             )}
           </div>
           {voiceError && <div className="voice-err">{voiceError}</div>}

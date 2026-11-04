@@ -26,6 +26,7 @@ const api: Api = {
   usageGet: () => inv('usage:get'),
   voiceTranscribe: (bytes) => inv('voice:transcribe', bytes),
   imagesNormalize: (bytes) => inv('images:normalize', bytes),
+  extractFile: (name, kind, dataBase64) => inv('files:extract', { name, kind, dataBase64 }),
   voiceStatus: () => inv('voice:status'),
   voiceDownloadModel: () => inv('voice:download-model'),
   onVoiceModelProgress: (cb) => {

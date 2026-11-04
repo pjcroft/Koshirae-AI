@@ -5,7 +5,8 @@ import { writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
 import { randomUUID } from 'crypto'
-import type { Conversation, ImageAttachment, Project, Settings, SubWhich } from '@shared/types'
+import type { Conversation, DocAttachment, ImageAttachment, Project, Settings, SubWhich } from '@shared/types'
+import { DOC_KINDS, type DocKind } from '@shared/files'
 import * as store from './store'
 import { attachContextMenu, installAppMenu } from './menu'
 import { compactConversation, deleted, isRunning, listModels, respondApproval, runAgent, stopAll, stopConv } from './agent'
@@ -14,6 +15,7 @@ import { logout as subsLogout, startLogin, subStatus, submitCode } from './subs'
 import { getUsage } from './usage'
 import { downloadModel as voiceDownloadModel, transcribeAndClean, voiceStatus } from './voice'
 import { normalizeImage } from './images'
+import { extractFilePayload } from './extract'
 
 // The main process is an ES module (see electron.vite.config.ts) so that
 // ESM-only dependencies such as @mariozechner/pi-ai load natively.
@@ -116,7 +118,17 @@ app.whenReady().then(async () => {
   ipcMain.handle('models:list', (_e, id: string) => listModels(provider(id), settings))
   ipcMain.handle(
     'chat:send',
-    async (_e, a: { convId: string; text: string; providerId: string; model: string; attachments?: ImageAttachment[] }) => {
+    async (
+      _e,
+      a: {
+        convId: string
+        text: string
+        providerId: string
+        model: string
+        attachments?: ImageAttachment[]
+        files?: DocAttachment[]
+      }
+    ) => {
       const conv = await store.loadConv(a.convId)
       if (!conv || !win) {
         win?.webContents.send('chat:event', { convId: a.convId, type: 'error', error: 'Conversation not found' })
@@ -132,10 +144,36 @@ app.whenReady().then(async () => {
       const attachments = (a.attachments ?? [])
         .filter((x) => x && typeof x.mime === 'string' && x.mime.startsWith('image/') && typeof x.dataBase64 === 'string' && x.dataBase64)
         .slice(0, 4)
-      if (conv.messages.length === 0) conv.title = a.text.slice(0, 48) || (attachments.length ? 'Image message' : conv.title)
+      // Same treatment for documents: valid kind, extracted text within
+      // the cap's headroom, and a native-PDF payload only on PDFs whose
+      // decoded bytes stay under the passthrough ceiling. Anything else
+      // is dropped whole, like a malformed image above.
+      const files = (a.files ?? [])
+        .filter(
+          (d) =>
+            d &&
+            typeof d.name === 'string' &&
+            typeof d.text === 'string' &&
+            d.text.length <= 130_000 &&
+            DOC_KINDS.includes(d.kind) &&
+            (d.dataBase64 === undefined ||
+              (d.kind === 'pdf' &&
+                typeof d.dataBase64 === 'string' &&
+                Buffer.from(d.dataBase64, 'base64').length <= 11 * 1024 * 1024))
+        )
+        .slice(0, 4)
+      if (conv.messages.length === 0)
+        conv.title =
+          a.text.slice(0, 48) ||
+          (attachments.length ? 'Image message' : files.length ? `File: ${files[0].name}` : conv.title)
       conv.providerId = a.providerId
       conv.model = a.model
-      conv.messages.push({ role: 'user', content: a.text, ...(attachments.length ? { attachments } : {}) })
+      conv.messages.push({
+        role: 'user',
+        content: a.text,
+        ...(attachments.length ? { attachments } : {}),
+        ...(files.length ? { files } : {})
+      })
       await store.saveConv(conv)
       await runAgent(win, conv, settings, provider(a.providerId), a.model)
     }
@@ -169,6 +207,15 @@ app.whenReady().then(async () => {
       return normalizeImage(bytes)
     } catch (e: any) {
       return { ok: false, error: `Image conversion failed: ${e?.message ?? e}` }
+    }
+  })
+  ipcMain.handle('files:extract', async (_e, a: { name: string; kind: DocKind; dataBase64: string }) => {
+    // extractFilePayload already returns failures instead of throwing;
+    // this wrapper is the same second belt as images:normalize.
+    try {
+      return await extractFilePayload(a ?? {})
+    } catch (e: any) {
+      return { ok: false, error: `File extraction failed: ${e?.message ?? e}` }
     }
   })
   ipcMain.handle('voice:status', () => voiceStatus())

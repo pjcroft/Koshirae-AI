@@ -74,7 +74,8 @@ async function streamCompletion(
 ): Promise<ChatMessage> {
   // Attachments ride inline on ChatMessage; the wire format wants content
   // parts, so map here (attachment-free messages pass through unchanged).
-  const body: any = { model, messages: mapOpenAIMessages(messages), stream: true }
+  // The provider id decides whether a PDF goes as a native file part.
+  const body: any = { model, messages: mapOpenAIMessages(messages, p.id), stream: true }
   if (maxTokens) body.max_tokens = maxTokens
   if (tools.length)
     body.tools = tools.map((t) => ({
@@ -295,6 +296,10 @@ const clipForSummary = (s: string, max: number): string =>
 
 function msgTokens(m: ChatMessage): number {
   let n = estTokens(typeof m.content === 'string' ? m.content : '')
+  // Document attachments are sent as their extracted text (inlined into
+  // the message by the transport mapping), so count that text — unlike
+  // image base64, which no estimator tries to price.
+  for (const d of m.files ?? []) n += estTokens(d.text)
   for (const tc of m.tool_calls ?? []) n += estTokens(tc.function.name) + estTokens(tc.function.arguments)
   return n
 }
@@ -339,8 +344,11 @@ function serializeSegment(conv: Conversation, cut: number): string {
     const m = conv.messages[i]
     let body = typeof m.content === 'string' ? m.content : ''
     // The summarizer is text-only: an attached image stands in as "[image]"
-    // (its base64 never enters the summary input).
+    // (its base64 never enters the summary input), a document as
+    // "[file: <name>]" (its extracted text stays out too — the name is
+    // the durable fact; the content was the model's to use at the time).
     if (m.attachments?.length) body += (body ? '\n' : '') + m.attachments.map(() => '[image]').join(' ')
+    if (m.files?.length) body += (body ? '\n' : '') + m.files.map((f) => `[file: ${f.name}]`).join(' ')
     if (m.role === 'tool') body = clipForSummary(body, 4_000)
     if (m.tool_calls?.length) {
       const calls = m.tool_calls

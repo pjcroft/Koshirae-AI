@@ -1,3 +1,5 @@
+import type { DocKind } from './files'
+
 export interface Provider {
   id: string
   name: string
@@ -89,6 +91,22 @@ export interface ImageAttachment {
   dataBase64: string
 }
 
+// A document attached to a user message (dragged/pasted into the
+// composer). The extracted text rides inline in the conversation JSON;
+// PDFs up to 10 MB also keep the original bytes (dataBase64) so providers
+// with a native file input (OpenRouter / OpenAI) can read the PDF
+// itself. Other kinds are always sent as their extracted text.
+export interface DocAttachment {
+  name: string
+  mime: string
+  kind: DocKind
+  size: number // bytes of the original file
+  text: string // extracted text, capped at MAX_DOC_TEXT
+  truncated?: boolean
+  pages?: number // PDFs and slide decks
+  dataBase64?: string // PDFs ≤ 10 MB only
+}
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string | null
@@ -96,6 +114,7 @@ export interface ChatMessage {
   tool_call_id?: string
   name?: string
   attachments?: ImageAttachment[] // user messages only
+  files?: DocAttachment[] // user messages only
 }
 
 export interface Conversation {
@@ -177,6 +196,15 @@ export interface NormalizeImageResult {
   error?: string
 }
 
+// Result of the files:extract IPC (document → text in the main process).
+export interface ExtractFileResult {
+  ok: boolean
+  text?: string
+  pages?: number
+  truncated?: boolean
+  error?: string
+}
+
 export interface Api {
   getSettings(): Promise<Settings>
   setSettings(s: Settings): Promise<McpStatus[]>
@@ -194,6 +222,7 @@ export interface Api {
     providerId: string
     model: string
     attachments?: ImageAttachment[]
+    files?: DocAttachment[]
   }): Promise<void>
   stop(convId: string): Promise<void>
   compactChat(convId: string): Promise<{ ok: boolean; compacted: boolean; summaryUpTo: number }>
@@ -206,6 +235,7 @@ export interface Api {
   usageGet(): Promise<UsageReport>
   voiceTranscribe(bytes: Uint8Array): Promise<VoiceResult>
   imagesNormalize(bytes: Uint8Array): Promise<NormalizeImageResult>
+  extractFile(name: string, kind: DocKind, dataBase64: string): Promise<ExtractFileResult>
   voiceStatus(): Promise<VoiceStatus>
   voiceDownloadModel(): Promise<{ ok: boolean; error?: string }>
   onVoiceModelProgress(cb: (e: { pct: number }) => void): () => void

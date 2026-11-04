@@ -1,6 +1,6 @@
 {
   "name": "harness",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "description": "Multi-provider AI chat + agent harness (OpenRouter, OpenAI-compatible, Ollama, MCP)",
   "main": "out/main/index.mjs",
   "author": "you",
@@ -10,7 +10,8 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "dist": "electron-vite build && electron-builder"
+    "dist": "electron-vite build && electron-builder",
+    "test": "node --import tsx test/files.harness.mjs && node --import tsx test/extract.harness.mjs && node --import tsx test/imagemap.harness.mjs && node --import tsx test/imaging.harness.mjs"
   },
   "build": {
     "appId": "dev.local.harness",
@@ -36,6 +37,7 @@
     }
   },
   "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
@@ -43,15 +45,20 @@
     "electron": "^45.2.1",
     "electron-builder": "^26.18.0",
     "electron-vite": "^6.0.0",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vite": "^8.3.5"
   },
   "dependencies": {
     "@mariozechner/pi-ai": "0.73.1",
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "adm-zip": "^0.5.18",
+    "mammoth": "^1.13.0",
+    "pdf-parse": "^1.1.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "xlsx": "^0.18.5"
   }
 }
