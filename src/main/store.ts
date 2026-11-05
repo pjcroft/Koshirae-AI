@@ -3,6 +3,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { promises as fs } from 'fs'
 import type { Conversation, ConversationMeta, Provider, Settings, SubCreds } from '@shared/types'
+import { SYSTEM_PROMPT, upgradeSystemPromptText } from '@shared/sysprompt'
 
 export const subProviders = (): Provider[] => [
   { id: 'claude-sub', name: 'Claude (subscription)', baseUrl: '', apiKey: '', kind: 'claude-sub' },
@@ -27,8 +28,7 @@ export const defaultSettings = (): Settings => ({
   activeProviderId: 'openrouter',
   model: 'anthropic/claude-sonnet-4.5',
   enabledModels: {},
-  systemPrompt:
-    'You are Koshirae AI, a capable assistant running on the user\'s computer with tools for local files, shell commands, SSH, SMB shares, and Tailscale. Use tools when they help; be concise and careful with anything destructive.',
+  systemPrompt: SYSTEM_PROMPT,
   workingDir: homedir(),
   projects: [],
   policy: { read: 'allow', write: 'ask', exec: 'ask', mcp: 'ask' },
@@ -75,7 +75,9 @@ function mapSecrets(s: Settings, f: (v: string) => string): Settings {
 export async function loadSettings(): Promise<Settings> {
   try {
     const raw = JSON.parse(await fs.readFile(settingsFile(), 'utf8'))
-    return ensureSubProviders(mapSecrets({ ...defaultSettings(), ...raw }, decrypt))
+    const merged = mapSecrets({ ...defaultSettings(), ...raw }, decrypt)
+    merged.systemPrompt = upgradeSystemPromptText(merged.systemPrompt)
+    return ensureSubProviders(merged)
   } catch {
     return defaultSettings()
   }
