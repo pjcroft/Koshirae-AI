@@ -149,3 +149,13 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 /* Message prose in a book serif, Claude-style; UI chrome stays sans and
    code stays monospace. */
 .msg{font-family:Georgia,'Times New Roman',serif}
+/* Tool cards keep their navy panels inside the light bubbles — their args
+   and output text must stay light. (0.9.2: they were inheriting the dark
+   message colour and rendering black on navy.) The attach-thumb remove
+   badge sits on a navy chip, so it stays light too, and error text that
+   used to sit on the dark composer goes dark red on white. */
+.tool{color:#e8eefc}
+.tool pre{background:#08101e;color:#e8eefc}
+.attach-thumb .x{color:#e8eefc}
+.voice-err{color:#b91c1c}
+.err{color:#b91c1c}
