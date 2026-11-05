@@ -117,3 +117,35 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
 .ctx-btn{padding:.35rem .7rem;font-size:.8rem}
 .ctx-btn:disabled{opacity:.45;cursor:default}
 .ctx-btn:disabled:hover{border-color:var(--line)}
+
+/* ===== Light chat theme (0.9.1, Paul's pick from the rendered mockup) =====
+   The chat column goes white; the sidebar stays navy. User bubbles are a
+   light orange tint, AI bubbles a light blue tint, both with dark text
+   and 14px corners. Toolbar and composer follow the light scheme. */
+.main{background:#ffffff;color:#111827}
+.top{background:#ffffff;border-bottom-color:rgba(15,23,42,.12)}
+.top select,.top input{background:#ffffff;color:#111827;border-color:rgba(15,23,42,.22)}
+.top .btn{background:#f1f5f9;color:#111827;border-color:rgba(15,23,42,.18)}
+.cwd{color:#64748b}
+.chat{background:#ffffff}
+.msg{border-radius:14px;color:#111827;border-color:rgba(15,23,42,.13)}
+.msg.user{background:#fdeeda;border-color:#f0cf9e;color:#111827}
+.msg.bot{background:#e7f1fd;border-color:#c2d8f6;color:#111827}
+.msg.bot a{color:#1d4ed8}
+.msg th,.msg td{border-color:rgba(15,23,42,.16)}
+.msg pre{background:rgba(15,23,42,.06);border-color:rgba(15,23,42,.12);color:#111827}
+.msg-files .attach-doc{background:rgba(255,255,255,.72);color:#111827;border-color:rgba(15,23,42,.16)}
+.msg-files .attach-doc .doc-meta{color:#64748b}
+.composer-area{background:#ffffff;border-top-color:rgba(15,23,42,.12)}
+.composer textarea{background:#ffffff;color:#111827;border-color:rgba(15,23,42,.22)}
+.composer .btn{background:#f1f5f9;color:#111827;border-color:rgba(15,23,42,.18)}
+.composer .btn.primary{background:linear-gradient(100deg,var(--accent),#0ea5c6);color:#04222a;border:0}
+.attach-strip .attach-doc{background:#f8fafc;color:#111827;border-color:rgba(15,23,42,.16)}
+/* Empty-state hero on the light theme: the muted cyan-grey copy washes out
+   on white, so the lede, kicker and pills get light-surface colours. */
+.hero .lede{color:#475569}
+.kicker{color:#0369a1;border-color:rgba(3,105,161,.35);background:rgba(224,242,254,.6)}
+.pills span{color:#7c5e2e;border-color:rgba(124,94,46,.35);background:rgba(217,199,165,.18)}
+/* Message prose in a book serif, Claude-style; UI chrome stays sans and
+   code stays monospace. */
+.msg{font-family:Georgia,'Times New Roman',serif}
