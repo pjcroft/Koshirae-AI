@@ -114,6 +114,8 @@ export default function App() {
   const [conv, setConv] = useState<Conversation | null>(null)
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState('')
+  const [busySince, setBusySince] = useState<number | null>(null)
+  const [, setBusyTick] = useState(0)
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set())
   const setBusyFor = (id: string, on: boolean) =>
     setBusyIds((s) => {
@@ -152,6 +154,7 @@ export default function App() {
   const voiceTimerRef = useRef<number | undefined>(undefined)
   const convRef = useRef<Conversation | null>(null)
   const endRef = useRef<HTMLDivElement>(null)
+  const chatRef = useRef<HTMLDivElement>(null)
   convRef.current = conv
 
   const refreshList = () => api.listConvs().then(setConvs)
@@ -207,8 +210,26 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    // Follow new steps only when the reader is already near the bottom —
+    // never yank them down mid-read, and never snap on every streamed token
+    // (that constant re-scroll was the visible jitter while answers grew).
+    const el = chatRef.current
+    if (el && el.scrollHeight - el.scrollTop - el.clientHeight > 160) return
     endRef.current?.scrollIntoView({ block: 'end' })
-  }, [conv?.messages.length, streaming, approvals.length])
+  }, [conv?.messages.length, approvals.length])
+
+  // Elapsed clock for the floating working pill. Must live with the other
+  // effects, above the settings early-return, or React's hook order breaks.
+  const curBusy = !!conv && busyIds.has(conv.id)
+  useEffect(() => {
+    if (!curBusy) {
+      setBusySince(null)
+      return
+    }
+    setBusySince((t) => t ?? Date.now())
+    const iv = setInterval(() => setBusyTick((x) => x + 1), 1000)
+    return () => clearInterval(iv)
+  }, [curBusy])
 
   // Release the microphone if the component ever unmounts mid-recording.
   useEffect(
@@ -630,6 +651,7 @@ export default function App() {
   const myApprovals = approvals.filter((a) => a.convId === conv?.id)
   const msgs = conv?.messages ?? []
 
+
   // Context meter: the same chars/4 estimate the main process uses, over
   // what will actually be sent — the compaction summary (if any) plus the
   // messages not folded into it.
@@ -651,6 +673,21 @@ export default function App() {
   const ctxLabel = ctxTokens >= 1000 ? `~${(ctxTokens / 1000).toFixed(ctxTokens >= 10_000 ? 0 : 1)}K` : `~${ctxTokens}`
   const results = new Map<string, ChatMessage>()
   msgs.forEach((m) => m.tool_call_id && results.set(m.tool_call_id, m))
+
+  // Floating working pill (0.9.4): what the model is doing right now.
+  const lastAssistant = [...msgs].reverse().find((mm) => mm.role === 'assistant')
+  const runningTool = lastAssistant?.tool_calls?.find((tc) => !results.has(tc.id))
+  const pillState = myApprovals.length > 0 ? 'wait' : runningTool ? 'run' : streaming ? 'answer' : 'think'
+  const pillLabel =
+    pillState === 'wait'
+      ? 'Waiting for your approval'
+      : pillState === 'run'
+        ? `Running ${runningTool!.function.name}`
+        : pillState === 'answer'
+          ? 'Answering'
+          : 'Thinking'
+  const pillSecs = busySince ? Math.max(0, Math.floor((Date.now() - busySince) / 1000)) : 0
+  const pillTime = `${Math.floor(pillSecs / 60)}:${String(pillSecs % 60).padStart(2, '0')}`
 
   const activeProvider = settings.providers.find((p) => p.id === settings.activeProviderId)
   const usageSrc =
@@ -822,7 +859,7 @@ export default function App() {
           </span>
         </header>
 
-        <div className="chat">
+        <div className="chat" ref={chatRef}>
           {msgs.length === 0 && !busy && (
             <div className="hero">
               <span className="kicker">⚡ KOSHIRAE AI</span>
@@ -897,13 +934,21 @@ export default function App() {
           ))}
           {streaming && (
             <div className="msg bot">
-              <Markdown remarkPlugins={[remarkGfm]}>{streaming}</Markdown>
+              <div className="streamtext">{streaming}</div>
             </div>
           )}
           {error && <div className="err">{error}</div>}
           <div ref={endRef} />
         </div>
 
+        {busy && (
+          <div className="workpill">
+            <span className={`wp-dot ${pillState}`} />
+            <span>
+              {pillLabel} · {pillTime}
+            </span>
+          </div>
+        )}
         <footer className="composer-area">
           {(pending.length > 0 || pendingDocs.length > 0 || reading > 0) && (
             <div className="attach-strip">

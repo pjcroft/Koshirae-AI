@@ -154,8 +154,17 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent);
    message colour and rendering black on navy.) The attach-thumb remove
    badge sits on a navy chip, so it stays light too, and error text that
    used to sit on the dark composer goes dark red on white. */
-.tool{color:#e8eefc}
-.tool pre{background:#08101e;color:#e8eefc}
+.tool{background:#e9edf2;border-color:#cbd5e1;color:#111827}
+.tool summary{color:#334155}
+.tool pre{background:#f7f9fb;color:#111827}
 .attach-thumb .x{color:#e8eefc}
 .voice-err{color:#b91c1c}
 .err{color:#b91c1c}
+
+/* ===== 0.9.4: floating working pill + streaming stability ===== */
+.streamtext{white-space:pre-wrap;word-break:break-word}
+.workpill{position:absolute;left:50%;transform:translateX(-50%);bottom:104px;z-index:5;display:flex;align-items:center;gap:.55rem;background:#111c30;color:#e8eefc;border-radius:999px;padding:.5rem 1.1rem;font-size:.88rem;box-shadow:0 10px 30px rgba(2,6,17,.45)}
+.wp-dot{width:9px;height:9px;border-radius:50%;flex:none;background:#38bdf8;animation:wpulse 1.6s ease-in-out infinite}
+.wp-dot.run{background:#34d399}
+.wp-dot.wait{background:#f59e0b}
+@keyframes wpulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}
