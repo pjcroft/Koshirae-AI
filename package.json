@@ -11,7 +11,10 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "dist": "electron-vite build && electron-builder",
-    "test": "node --import tsx test/files.harness.mjs && node --import tsx test/extract.harness.mjs && node --import tsx test/imagemap.harness.mjs && node --import tsx test/imaging.harness.mjs && node --import tsx test/sysprompt.harness.mjs && node test/uifix.harness.mjs"
+    "test": "node --import tsx test/files.harness.mjs && node --import tsx test/extract.harness.mjs && node --import tsx test/imagemap.harness.mjs && node --import tsx test/imaging.harness.mjs && node --import tsx test/sysprompt.harness.mjs && node test/uifix.harness.mjs",
+    "mobile:build": "vite build -c vite.mobile.config.ts && cap sync android",
+    "mobile:apk": "npm run mobile:build && cd android && ./gradlew assembleDebug",
+    "mobile:dev": "vite -c vite.mobile.config.ts"
   },
   "build": {
     "appId": "dev.local.harness",
@@ -37,6 +40,8 @@
     }
   },
   "devDependencies": {
+    "@capacitor/android": "^8.6.0",
+    "@capacitor/cli": "^8.6.0",
     "@types/adm-zip": "^0.5.8",
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
@@ -50,6 +55,8 @@
     "vite": "^8.3.5"
   },
   "dependencies": {
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.0",
     "@mariozechner/pi-ai": "0.73.1",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "adm-zip": "^0.5.18",

@@ -1,0 +1,31 @@
+/* Phone layout: the desktop sidebar becomes a slide-in drawer. */
+html,body,#root{height:100%;height:100dvh}
+body{overscroll-behavior:none;-webkit-tap-highlight-color:transparent}
+.app{display:block;height:100%}
+.main{height:100%;width:100%}
+.side{position:fixed;z-index:30;top:0;bottom:0;left:0;width:min(84vw,320px);transform:translateX(-100%);transition:transform .2s ease;padding-top:calc(1rem + env(safe-area-inset-top));padding-bottom:calc(1rem + env(safe-area-inset-bottom));background:#0e1830}
+body.drawer .side{transform:none;box-shadow:0 0 40px rgba(0,0,0,.5)}
+.scrim{display:none;position:fixed;inset:0;z-index:20;background:rgba(3,8,18,.55)}
+body.drawer .scrim{display:block}
+.drawer-btn{position:fixed;z-index:15;top:calc(.45rem + env(safe-area-inset-top));left:.5rem;width:42px;height:42px;border-radius:10px;border:1px solid rgba(15,23,42,.22);background:#f1f5f9;color:#111827;font-size:1.3rem;line-height:1}
+body.drawer .drawer-btn{display:none}
+.top{padding:calc(.5rem + env(safe-area-inset-top)) .6rem .5rem 3.4rem;gap:.4rem;flex-wrap:wrap}
+.top select,.top input{min-width:0;max-width:46vw;font-size:.85rem}
+.model{width:auto;flex:1}
+.cwd,.ctx-btn{display:none}
+.chat{padding:1rem .7rem}
+.msg{max-width:100%;font-size:1rem}
+.msg.bot{width:100%}
+.hero h2{font-size:2rem}
+.composer{padding:.6rem .6rem calc(.6rem + env(safe-area-inset-bottom));gap:.4rem;align-items:flex-end}
+.composer textarea{height:48px;min-height:48px;max-height:30vh;font-size:16px}
+.composer .btn{padding:.5rem .65rem;min-height:44px}
+.mic{display:none}
+.workpill{bottom:calc(96px + env(safe-area-inset-bottom))}
+.attach-strip{padding:.5rem .6rem 0}
+.msg-imgs img{max-width:100%}
+.modal{width:100vw;max-height:100dvh;height:100dvh;border-radius:0;padding-top:calc(1rem + env(safe-area-inset-top))}
+.modal .row{flex-wrap:wrap}
+input,select,textarea{font-size:16px}
+/* Desktop-only features hidden on the phone */
+.projects,.cwd,.usage-line{display:none}

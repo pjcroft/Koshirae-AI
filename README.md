@@ -41,3 +41,25 @@ npm run dist   # dmg on macOS, AppImage + deb on Linux
 ```json
 [{"name":"fs","command":"npx","args":["-y","@modelcontextprotocol/server-filesystem","/home/me"]}]
 ```
+
+## Android (Pixel / any Android 7+)
+
+A phone build lives alongside the desktop app (Capacitor wrapper around the same UI).
+It does chat with streaming, model picker, saved chats, image/document attachments (📎),
+web search (SearXNG) and HTTP MCP servers. Local files, shell, SSH, SMB, voice and the
+Claude/ChatGPT subscription logins are desktop-only.
+
+Build (needs JDK 17+, Android SDK with platform 35/36 and build-tools, `ANDROID_HOME` set):
+
+```bash
+npm install
+npm run mobile:apk        # -> android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Install on the phone: copy the APK over and open it (allow "install unknown apps" for your file manager/browser),
+or `adb install -r android/app/build/outputs/apk/debug/app-debug.apk`.
+
+Notes: model calls go straight from the phone to the provider, so a self-hosted server
+(Ollama / LM Studio over Tailscale) must allow CORS (for Ollama: `OLLAMA_ORIGINS=*`) and be reachable
+from the phone. API keys are stored in the app's private storage. The debug APK is signed with the
+Android debug key; for the Play Store build a signed release bundle.

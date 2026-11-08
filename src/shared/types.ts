@@ -206,6 +206,7 @@ export interface ExtractFileResult {
 }
 
 export interface Api {
+  mobile?: boolean // true in the Android build (no desktop-only tools; Enter inserts a newline)
   getSettings(): Promise<Settings>
   setSettings(s: Settings): Promise<McpStatus[]>
   listConvs(): Promise<ConversationMeta[]>

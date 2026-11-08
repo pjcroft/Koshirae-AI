@@ -1,6 +1,6 @@
-// Harness for src/main/imagemap.ts — attachment → wire mapping for the
+// Harness for src/shared/openai-map.ts — attachment → wire mapping for the
 // OpenAI-compatible and pi-ai transports, documents included.
-import { docTextBlock, mapOpenAIMessage, mapOpenAIMessages, piUserContent } from '../src/main/imagemap.ts'
+import { docTextBlock, mapOpenAIMessage, mapOpenAIMessages, piUserContent } from '../src/shared/openai-map.ts'
 
 let passed = 0
 const failures = []

@@ -1,5 +1,5 @@
-import type { ChatMessage, DocAttachment } from '@shared/types'
-import { formatBytes } from '@shared/files'
+import type { ChatMessage, DocAttachment } from './types'
+import { formatBytes } from './files'
 
 // Attachment mapping for the two provider transports. ChatMessage stores
 // image attachments inline ({ mime, dataBase64 }) and document

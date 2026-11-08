@@ -140,6 +140,8 @@ export default function SettingsModal(props: {
           ))}
         </select>
 
+        {!window.api.mobile && (
+          <>
         <h4>Subscription accounts</h4>
         {(
           [
@@ -243,6 +245,9 @@ export default function SettingsModal(props: {
           <p className="hint">Nothing to show yet — add an OpenRouter key or sign in above.</p>
         )}
 
+          </>
+        )}
+
         <h4>Web search</h4>
         <div className="row">
           <input
@@ -253,6 +258,8 @@ export default function SettingsModal(props: {
         </div>
         <p className="hint">Used by the web_search tool. Point it at a SearXNG instance with JSON output enabled.</p>
 
+        {!window.api.mobile && (
+          <>
         <h4>Voice dictation</h4>
         <p className="hint">
           {vstat === null
@@ -318,6 +325,9 @@ export default function SettingsModal(props: {
           AnythingLLM's local API). If the cleanup call fails, the raw transcript is inserted instead.
         </p>
 
+          </>
+        )}
+
         <h4>Models shown in chat</h4>
         <div className="row">
           <select value={mp} onChange={(e) => setMp(e.target.value)}>
@@ -346,6 +356,8 @@ export default function SettingsModal(props: {
         <h4>System prompt</h4>
         <textarea rows={10} value={s.systemPrompt} onChange={(e) => setS({ ...s, systemPrompt: e.target.value })} />
 
+        {!window.api.mobile && (
+          <>
         <h4>Working directory</h4>
         <div className="row">
           <input value={s.workingDir} onChange={(e) => setS({ ...s, workingDir: e.target.value })} />
@@ -353,6 +365,9 @@ export default function SettingsModal(props: {
             Browse…
           </button>
         </div>
+
+          </>
+        )}
 
         <h4>Tool approvals</h4>
         <div className="row">
@@ -380,6 +395,8 @@ export default function SettingsModal(props: {
           </div>
         ))}
 
+        {!window.api.mobile && (
+          <>
         <h4>SMB credentials (JSON)</h4>
         <textarea
           rows={8}
@@ -388,6 +405,9 @@ export default function SettingsModal(props: {
           placeholder={'[{"host":"nas.tailnet.ts.net","username":"me","password":"…"}]'}
         />
         <p className="hint">SSH uses your system ssh (keys, agent, ~/.ssh/config, Tailscale SSH). SMB needs <code>smbclient</code>, or mount shares and use the file tools.</p>
+
+          </>
+        )}
 
         {err && <div className="err">{err}</div>}
         <div className="row end">

@@ -147,6 +147,7 @@ export default function App() {
   const [imgError, setImgError] = useState('')
   const [dragOver, setDragOver] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const mediaRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const chunksRef = useRef<Blob[]>([])
@@ -978,16 +979,31 @@ export default function App() {
             <textarea
               ref={inputRef}
               value={input}
-              placeholder="Message Koshirae AI…  (Enter to send, Shift+Enter for newline)"
+              placeholder={api.mobile ? 'Message Koshirae AI…' : 'Message Koshirae AI…  (Enter to send, Shift+Enter for newline)'}
               onChange={(e) => setInput(e.target.value)}
               onPaste={onPaste}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key === 'Enter' && !e.shiftKey && !api.mobile) {
                   e.preventDefault()
                   send()
                 }
               }}
             />
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              hidden
+              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.md,.csv,.json"
+              onChange={(e) => {
+                const fl = Array.from(e.target.files ?? [])
+                e.target.value = ''
+                void addFiles(fl, 'drop')
+              }}
+            />
+            <button className="btn attach" title="Attach images or documents" onClick={() => fileInputRef.current?.click()}>
+              📎
+            </button>
             <button
               className={'btn mic' + (voiceState === 'recording' ? ' rec' : '')}
               onClick={toggleVoice}

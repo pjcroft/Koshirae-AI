@@ -5,5 +5,5 @@
     "lib": ["ES2023", "DOM"], "types": ["node"], "noEmit": true,
     "paths": { "@shared/*": ["./src/shared/*"] }
   },
-  "include": ["src", "electron.vite.config.ts"]
+  "include": ["src", "mobile", "electron.vite.config.ts", "vite.mobile.config.ts", "capacitor.config.ts"]
 }

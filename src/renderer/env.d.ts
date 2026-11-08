@@ -3,3 +3,4 @@ declare module '*.png' {
   export default src
 }
 declare module '*.css'
+declare module 'mammoth/mammoth.browser'
